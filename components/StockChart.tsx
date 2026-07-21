@@ -3,18 +3,18 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Data harga historis spesifik per periode agar setiap klik period menghasilkan harga & perubahan (change/%) yang berbeda secara realistis
+// Data historis spesifik per periode dengan harga penutupan & pembukaan yang bervariasi
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
-  '1s':   { price: 962, base: 955, open: 958, high: 965, low: 955 },
-  '1m_time': { price: 962, base: 950, open: 952, high: 964, low: 950 },
-  '1h':   { price: 962, base: 935, open: 940, high: 963, low: 930 },
-  '1d':   { price: 962, base: 875, open: 875, high: 962, low: 870 },
-  '1m':   { price: 962, base: 820, open: 825, high: 975, low: 810 },
-  '3m':   { price: 962, base: 740, open: 745, high: 980, low: 720 },
-  '6m':   { price: 962, base: 650, open: 660, high: 990, low: 630 },
-  'ytd':  { price: 962, base: 580, open: 585, high: 995, low: 550 },
-  '1y':   { price: 962, base: 480, open: 490, high: 1020, low: 460 },
-  '5y':   { price: 962, base: 200, open: 210, high: 1050, low: 180 },
+  '1s':       { price: 938, base: 955, open: 958, high: 965, low: 930 },
+  '1m_time': { price: 938, base: 950, open: 952, high: 964, low: 930 },
+  '1h':       { price: 938, base: 935, open: 940, high: 963, low: 930 },
+  '1d':       { price: 938, base: 875, open: 875, high: 958, low: 870 },
+  '1m':       { price: 938, base: 820, open: 825, high: 960, low: 810 },
+  '3m':       { price: 938, base: 740, open: 745, high: 970, low: 720 },
+  '6m':       { price: 938, base: 650, open: 660, high: 980, low: 630 },
+  'ytd':      { price: 938, base: 580, open: 585, high: 985, low: 550 },
+  '1y':       { price: 938, base: 480, open: 490, high: 1020, low: 460 },
+  '5y':       { price: 938, base: 200, open: 210, high: 1050, low: 180 },
 };
 
 export default function StockChart() {
@@ -24,10 +24,10 @@ export default function StockChart() {
   const chartRef = useRef<any>(null);
   
   const [stockInfo, setStockInfo] = useState<any>(null);
-  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>('1y');
+  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>('1s');
 
   // State harga yang dinamis mengikuti `timeRange`
-  const initialData = PERIOD_DATA['1y'];
+  const initialData = PERIOD_DATA['1s'];
   const [livePrice, setLivePrice] = useState<number>(initialData.price);
   const [basePrice, setBasePrice] = useState<number>(initialData.base);
   const [periodOpen, setPeriodOpen] = useState<number>(initialData.open);
@@ -55,20 +55,23 @@ export default function StockChart() {
     setIsClientReady(true);
   }, []);
 
-  // Update nilai harga & referensi saat user mengganti tombol Period (1S, 1M, 1H, 1D, 1M, dll)
+  // Update nilai harga & referensi saat user mengganti tombol Period
   useEffect(() => {
-    const target = PERIOD_DATA[timeRange] || PERIOD_DATA['1y'];
-    const diff = target.price - target.base;
+    const target = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
+    const currentLive = latestPriceRef.current;
+    
+    // Gunakan harga live terakhir atau fallback ke target price periode
+    const activePrice = currentLive > 0 ? currentLive : target.price;
+    const diff = activePrice - target.base;
     const diffPct = Number(((diff / target.base) * 100).toFixed(2));
 
-    setLivePrice(target.price);
+    setLivePrice(activePrice);
     setBasePrice(target.base);
     setPeriodOpen(target.open);
     setPriceChange(Math.round(diff));
     setPriceChangePercent(diffPct);
     setDayHigh(target.high);
     setDayLow(target.low);
-    latestPriceRef.current = target.price;
   }, [timeRange]);
 
   useEffect(() => {
@@ -132,7 +135,7 @@ export default function StockChart() {
 
         if (json.history && json.history.length > 0) {
           const rawHistory = json.history;
-          const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1y'];
+          const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
           
           const firstClose = rawHistory[0]?.close || 460;
           const scaleFactor = targetMeta.price / firstClose;
@@ -147,9 +150,9 @@ export default function StockChart() {
 
           const lastIdx = currentHistoryData.length - 1;
           if (currentHistoryData[lastIdx]) {
-            currentHistoryData[lastIdx].close = targetMeta.price;
-            if (targetMeta.price > currentHistoryData[lastIdx].high) currentHistoryData[lastIdx].high = targetMeta.price;
-            if (targetMeta.price < currentHistoryData[lastIdx].low) currentHistoryData[lastIdx].low = targetMeta.price;
+            currentHistoryData[lastIdx].close = latestPriceRef.current || targetMeta.price;
+            if (currentHistoryData[lastIdx].close > currentHistoryData[lastIdx].high) currentHistoryData[lastIdx].high = currentHistoryData[lastIdx].close;
+            if (currentHistoryData[lastIdx].close < currentHistoryData[lastIdx].low) currentHistoryData[lastIdx].low = currentHistoryData[lastIdx].close;
           }
 
           const mainData = currentHistoryData.map((row: any) => {
@@ -170,8 +173,8 @@ export default function StockChart() {
 
             const lastRowData = currentHistoryData[currentHistoryData.length - 1];
             if (lastRowData) {
-              setDayHigh(lastRowData.high ?? targetMeta.price);
-              setDayLow(lastRowData.low ?? targetMeta.price);
+              setDayHigh(lastRowData.high ?? targetMeta.high);
+              setDayLow(lastRowData.low ?? targetMeta.low);
             }
           }
         }
@@ -232,7 +235,7 @@ export default function StockChart() {
             });
           }
 
-          const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1y'];
+          const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
           const diff = lastRow.close - currentMeta.base;
           const diffPercent = (diff / currentMeta.base) * 100;
 
