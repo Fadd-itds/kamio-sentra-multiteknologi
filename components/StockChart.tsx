@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Data historis spesifik per periode dengan harga penutupan (price) & pembukaan (base) yang bervariasi
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
   '1s':       { price: 936, base: 935, open: 935, high: 942, low: 930 },   
   '1m_time': { price: 928, base: 925, open: 925, high: 945, low: 920 },   
@@ -24,51 +23,24 @@ export default function StockChart() {
   const chartRef = useRef<any>(null);
   
   const [stockInfo, setStockInfo] = useState<any>(null);
+  const [isClientReady, setIsClientReady] = useState<boolean>(false);
   
-  // 1. Load timeRange dari localStorage
-  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('selected_time_range');
-      if (saved && saved in PERIOD_DATA) {
-        return saved as keyof typeof PERIOD_DATA;
-      }
-    }
-    return '1s';
-  });
-
-  // Simpan timeRange ke localStorage setiap berubah
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('selected_time_range', timeRange);
-    }
-  }, [timeRange]);
-
+  // State utama
+  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>('1s');
   const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
 
-  // 2. Load livePrice terakhir dari localStorage agar tidak balik ke default saat refresh
-  const [livePrice, setLivePrice] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const savedPrice = localStorage.getItem(`live_price_${timeRange}`);
-      if (savedPrice) {
-        const parsed = Number(savedPrice);
-        if (!isNaN(parsed)) return parsed;
-      }
-    }
-    return targetData.price;
-  });
-
+  const [livePrice, setLivePrice] = useState<number>(targetData.price);
   const [basePrice, setBasePrice] = useState<number>(targetData.base);
   const [periodOpen, setPeriodOpen] = useState<number>(targetData.open);
   
-  const [priceChange, setPriceChange] = useState<number>(livePrice - targetData.base);
-  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((livePrice - targetData.base) / targetData.base) * 100).toFixed(2)));
+  const [priceChange, setPriceChange] = useState<number>(targetData.price - targetData.base);
+  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((targetData.price - targetData.base) / targetData.base) * 100).toFixed(2)));
   
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
   const [dayHigh, setDayHigh] = useState<number>(targetData.high);
   const [dayLow, setDayLow] = useState<number>(targetData.low);
 
-  const [isClientReady, setIsClientReady] = useState<boolean>(false);
   const [chartType, setChartType] = useState<'line' | 'candlestick' | 'ohlc'>('candlestick');
   const [feedStatus, setFeedStatus] = useState<'Connected' | 'Reconnecting...' | 'Disconnected'>('Connected');
 
@@ -79,45 +51,71 @@ export default function StockChart() {
     marketOpenRef.current = marketInfo.isLive;
   }, [marketInfo.isLive]);
 
+  // Load data tersimpan dari localStorage secara aman setelah komponen ter-mount di browser
   useEffect(() => {
     setIsClientReady(true);
-  }, []);
-
-  // Update nilai harga & referensi saat user mengganti tombol Period
-  useEffect(() => {
-    const target = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
-    
-    // Cek apakah ada riwayat harga tersimpan untuk period ini di localStorage
-    let activePrice = target.price;
     if (typeof window !== 'undefined') {
-      const savedPrice = localStorage.getItem(`live_price_${timeRange}`);
-      if (savedPrice) {
-        const parsed = Number(savedPrice);
-        if (!isNaN(parsed)) activePrice = parsed;
+      const savedRange = localStorage.getItem('selected_time_range');
+      if (savedRange && savedRange in PERIOD_DATA) {
+        setTimeRange(savedRange as keyof typeof PERIOD_DATA);
+        
+        const savedPrice = localStorage.getItem(`live_price_${savedRange}`);
+        if (savedPrice) {
+          const parsedPrice = Number(savedPrice);
+          if (!isNaN(parsedPrice)) {
+            const meta = PERIOD_DATA[savedRange];
+            setLivePrice(parsedPrice);
+            setBasePrice(meta.base);
+            setPeriodOpen(meta.open);
+            const diff = parsedPrice - meta.base;
+            setPriceChange(Math.round(diff));
+            setPriceChangePercent(Number(((diff / meta.base) * 100).toFixed(2)));
+            setDayHigh(Math.max(meta.high, parsedPrice));
+            setDayLow(Math.min(meta.low, parsedPrice));
+            latestPriceRef.current = parsedPrice;
+          }
+        }
       }
     }
+  }, []);
 
-    const diff = activePrice - target.base;
-    const diffPct = Number(((diff / target.base) * 100).toFixed(2));
+  // Update localStorage saat timeRange berubah
+  const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
+    setTimeRange(range);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('selected_time_range', range);
+      
+      const target = PERIOD_DATA[range];
+      const savedPrice = localStorage.getItem(`live_price_${range}`);
+      const activePrice = savedPrice ? Number(savedPrice) : target.price;
 
-    setLivePrice(activePrice);
-    setBasePrice(target.base);
-    setPeriodOpen(target.open);
-    setPriceChange(Math.round(diff));
-    setPriceChangePercent(diffPct);
-    setDayHigh(target.high > activePrice ? target.high : activePrice);
-    setDayLow(target.low < activePrice ? target.low : activePrice);
-    
-    latestPriceRef.current = activePrice;
-  }, [timeRange]);
+      setLivePrice(activePrice);
+      setBasePrice(target.base);
+      setPeriodOpen(target.open);
+      const diff = activePrice - target.base;
+      setPriceChange(Math.round(diff));
+      setPriceChangePercent(Number(((diff / target.base) * 100).toFixed(2)));
+      setDayHigh(Math.max(target.high, activePrice));
+      setDayLow(Math.min(target.low, activePrice));
+      latestPriceRef.current = activePrice;
+    }
+  };
 
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    if (!isClientReady || !chartContainerRef.current) return;
 
     let isDisposed = false;
 
+    // Bersihkan chart lama jika ada sebelum membuat yang baru
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+
+    const containerWidth = chartContainerRef.current.clientWidth || 600;
+
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
+      width: containerWidth,
       height: 450,
       layout: {
         background: { type: ColorType.Solid, color: '#ffffff' },
@@ -203,7 +201,7 @@ export default function StockChart() {
             color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
           }));
 
-          if (!isDisposed) {
+          if (!isDisposed && chartRef.current) {
             series.setData(mainData);
             volumeSeries.setData(volumeData);
             chart.timeScale().fitContent();
@@ -259,7 +257,7 @@ export default function StockChart() {
 
         currentHistoryData[lastIndex] = lastRow;
 
-        if (!isDisposed) {
+        if (!isDisposed && chartRef.current) {
           if (chartType === 'line') {
             series.update({ time: lastRow.time, value: lastRow.close });
           } else {
@@ -283,7 +281,6 @@ export default function StockChart() {
           setDayLow(lastRow.low);
           latestPriceRef.current = lastRow.close;
 
-          // Simpan live price terbaru ke localStorage agar tetap ada saat di-refresh
           if (typeof window !== 'undefined') {
             localStorage.setItem(`live_price_${timeRange}`, lastRow.close.toString());
           }
@@ -299,7 +296,7 @@ export default function StockChart() {
         chartRef.current = null;
       }
     };
-  }, [chartType, timeRange]);
+  }, [isClientReady, chartType, timeRange]);
 
   const formatRupiah = (num: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
 
@@ -315,6 +312,10 @@ export default function StockChart() {
   };
 
   const isPositive = priceChange >= 0;
+
+  if (!isClientReady) {
+    return <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-md max-w-4xl mx-auto h-[450px] flex items-center justify-center text-gray-400">Memuat Grafik...</div>;
+  }
 
   return (
     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-md text-gray-900 max-w-4xl mx-auto space-y-6">
@@ -475,7 +476,7 @@ export default function StockChart() {
               return (
                 <button
                   key={range}
-                  onClick={() => setTimeRange(range)}
+                  onClick={() => handlePeriodChange(range)}
                   className={`px-2.5 py-1.5 text-xs font-semibold uppercase transition-colors border-r border-gray-200 last:border-r-0 whitespace-nowrap ${
                     timeRange === range ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                   }`}
