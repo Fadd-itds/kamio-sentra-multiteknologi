@@ -25,7 +25,7 @@ export default function StockChart() {
   
   const [stockInfo, setStockInfo] = useState<any>(null);
   
-  // Memuat state timeRange dari localStorage agar tidak reset saat refresh
+  // 1. Load timeRange dari localStorage
   const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('selected_time_range');
@@ -36,32 +36,43 @@ export default function StockChart() {
     return '1s';
   });
 
-  // Simpan setiap perubahan timeRange ke localStorage
+  // Simpan timeRange ke localStorage setiap berubah
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('selected_time_range', timeRange);
     }
   }, [timeRange]);
 
-  // State harga yang dinamis mengikuti `timeRange`
-  const initialData = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
-  const [livePrice, setLivePrice] = useState<number>(initialData.price);
-  const [basePrice, setBasePrice] = useState<number>(initialData.base);
-  const [periodOpen, setPeriodOpen] = useState<number>(initialData.open);
+  const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
+
+  // 2. Load livePrice terakhir dari localStorage agar tidak balik ke default saat refresh
+  const [livePrice, setLivePrice] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const savedPrice = localStorage.getItem(`live_price_${timeRange}`);
+      if (savedPrice) {
+        const parsed = Number(savedPrice);
+        if (!isNaN(parsed)) return parsed;
+      }
+    }
+    return targetData.price;
+  });
+
+  const [basePrice, setBasePrice] = useState<number>(targetData.base);
+  const [periodOpen, setPeriodOpen] = useState<number>(targetData.open);
   
-  const [priceChange, setPriceChange] = useState<number>(initialData.price - initialData.base);
-  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((initialData.price - initialData.base) / initialData.base) * 100).toFixed(2)));
+  const [priceChange, setPriceChange] = useState<number>(livePrice - targetData.base);
+  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((livePrice - targetData.base) / targetData.base) * 100).toFixed(2)));
   
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
-  const [dayHigh, setDayHigh] = useState<number>(initialData.high);
-  const [dayLow, setDayLow] = useState<number>(initialData.low);
+  const [dayHigh, setDayHigh] = useState<number>(targetData.high);
+  const [dayLow, setDayLow] = useState<number>(targetData.low);
 
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
   const [chartType, setChartType] = useState<'line' | 'candlestick' | 'ohlc'>('candlestick');
   const [feedStatus, setFeedStatus] = useState<'Connected' | 'Reconnecting...' | 'Disconnected'>('Connected');
 
-  const latestPriceRef = useRef<number>(initialData.price);
+  const latestPriceRef = useRef<number>(livePrice);
   const marketOpenRef = useRef<boolean>(false);
 
   useEffect(() => {
@@ -72,11 +83,20 @@ export default function StockChart() {
     setIsClientReady(true);
   }, []);
 
-  // Update nilai harga & referensi secara spesifik saat user mengganti tombol Period
+  // Update nilai harga & referensi saat user mengganti tombol Period
   useEffect(() => {
     const target = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
     
-    const activePrice = target.price;
+    // Cek apakah ada riwayat harga tersimpan untuk period ini di localStorage
+    let activePrice = target.price;
+    if (typeof window !== 'undefined') {
+      const savedPrice = localStorage.getItem(`live_price_${timeRange}`);
+      if (savedPrice) {
+        const parsed = Number(savedPrice);
+        if (!isNaN(parsed)) activePrice = parsed;
+      }
+    }
+
     const diff = activePrice - target.base;
     const diffPct = Number(((diff / target.base) * 100).toFixed(2));
 
@@ -85,8 +105,8 @@ export default function StockChart() {
     setPeriodOpen(target.open);
     setPriceChange(Math.round(diff));
     setPriceChangePercent(diffPct);
-    setDayHigh(target.high);
-    setDayLow(target.low);
+    setDayHigh(target.high > activePrice ? target.high : activePrice);
+    setDayLow(target.low < activePrice ? target.low : activePrice);
     
     latestPriceRef.current = activePrice;
   }, [timeRange]);
@@ -190,8 +210,8 @@ export default function StockChart() {
 
             const lastRowData = currentHistoryData[currentHistoryData.length - 1];
             if (lastRowData) {
-              setDayHigh(lastRowData.high ?? targetMeta.high);
-              setDayLow(lastRowData.low ?? targetMeta.low);
+              setDayHigh(Math.max(lastRowData.high, targetMeta.high));
+              setDayLow(Math.min(lastRowData.low, targetMeta.low));
             }
           }
         }
@@ -262,6 +282,11 @@ export default function StockChart() {
           setDayHigh(lastRow.high);
           setDayLow(lastRow.low);
           latestPriceRef.current = lastRow.close;
+
+          // Simpan live price terbaru ke localStorage agar tetap ada saat di-refresh
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`live_price_${timeRange}`, lastRow.close.toString());
+          }
         }
       }
     }, updateIntervalMs);
