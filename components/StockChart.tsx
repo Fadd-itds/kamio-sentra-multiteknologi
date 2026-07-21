@@ -3,18 +3,18 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Data historis spesifik per periode dengan harga dasar (base) & pembukaan (open) yang bervariasi
+// Data historis spesifik per periode dengan harga penutupan & pembukaan yang bervariasi
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
   '1s':       { price: 938, base: 935, open: 935, high: 942, low: 930 },   // Real-time sesi hari ini
-  '1m_time': { price: 938, base: 925, open: 928, high: 945, low: 920 },   // 1 Menit terakhir
-  '1h':       { price: 938, base: 900, open: 905, high: 950, low: 895 },   // 1 Jam terakhir
-  '1d':       { price: 938, base: 875, open: 875, high: 958, low: 870 },   // 1 Hari / Sesi kemarin
-  '1m':       { price: 938, base: 820, open: 825, high: 960, low: 810 },   // 1 Bulan lalu
-  '3m':       { price: 938, base: 740, open: 745, high: 970, low: 720 },   // 3 Bulan lalu
-  '6m':       { price: 938, base: 650, open: 660, high: 980, low: 630 },   // 6 Bulan lalu
-  'ytd':      { price: 938, base: 580, open: 585, high: 985, low: 550 },   // Year to Date
-  '1y':       { price: 938, base: 480, open: 490, high: 1020, low: 460 },  // 1 Tahun lalu
-  '5y':       { price: 938, base: 200, open: 210, high: 1050, low: 180 },  // 5 Tahun lalu
+  '1m_time': { price: 928, base: 925, open: 925, high: 945, low: 920 },   // 1 Menit terakhir
+  '1h':       { price: 915, base: 900, open: 902, high: 950, low: 895 },   // 1 Jam terakhir
+  '1d':       { price: 890, base: 875, open: 875, high: 958, low: 870 },   // 1 Hari / Sesi kemarin
+  '1m':       { price: 850, base: 820, open: 825, high: 960, low: 810 },   // 1 Bulan lalu
+  '3m':       { price: 790, base: 740, open: 745, high: 970, low: 720 },   // 3 Bulan lalu
+  '6m':       { price: 700, base: 650, open: 660, high: 980, low: 630 },   // 6 Bulan lalu
+  'ytd':      { price: 620, base: 580, open: 585, high: 985, low: 550 },   // Year to Date
+  '1y':       { price: 540, base: 480, open: 490, high: 1020, low: 460 },  // 1 Tahun lalu
+  '5y':       { price: 310, base: 200, open: 210, high: 1050, low: 180 },  // 5 Tahun lalu
 };
 
 export default function StockChart() {
@@ -55,12 +55,12 @@ export default function StockChart() {
     setIsClientReady(true);
   }, []);
 
-  // Update nilai harga & referensi saat user mengganti tombol Period
+  // Update nilai harga & referensi secara spesifik saat user mengganti tombol Period
   useEffect(() => {
     const target = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
-    const currentLive = latestPriceRef.current;
     
-    const activePrice = currentLive > 0 ? currentLive : target.price;
+    // Gunakan harga unik dari tabel PERIOD_DATA untuk periode tersebut
+    const activePrice = target.price;
     const diff = activePrice - target.base;
     const diffPct = Number(((diff / target.base) * 100).toFixed(2));
 
@@ -71,6 +71,8 @@ export default function StockChart() {
     setPriceChangePercent(diffPct);
     setDayHigh(target.high);
     setDayLow(target.low);
+    
+    latestPriceRef.current = activePrice;
   }, [timeRange]);
 
   useEffect(() => {
