@@ -24,10 +24,27 @@ export default function StockChart() {
   const chartRef = useRef<any>(null);
   
   const [stockInfo, setStockInfo] = useState<any>(null);
-  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>('1s');
+  
+  // Memuat state timeRange dari localStorage agar tidak reset saat refresh
+  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('selected_time_range');
+      if (saved && saved in PERIOD_DATA) {
+        return saved as keyof typeof PERIOD_DATA;
+      }
+    }
+    return '1s';
+  });
+
+  // Simpan setiap perubahan timeRange ke localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('selected_time_range', timeRange);
+    }
+  }, [timeRange]);
 
   // State harga yang dinamis mengikuti `timeRange`
-  const initialData = PERIOD_DATA['1s'];
+  const initialData = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
   const [livePrice, setLivePrice] = useState<number>(initialData.price);
   const [basePrice, setBasePrice] = useState<number>(initialData.base);
   const [periodOpen, setPeriodOpen] = useState<number>(initialData.open);
