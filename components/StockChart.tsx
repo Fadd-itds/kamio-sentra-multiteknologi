@@ -25,21 +25,41 @@ export default function StockChart() {
   const [stockInfo, setStockInfo] = useState<any>(null);
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
   
-  // State utama
-  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>('1s');
+  // State utama (diinisialisasi aman dari localStorage jika ada)
+  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('selected_time_range');
+      if (saved && saved in PERIOD_DATA) return saved as keyof typeof PERIOD_DATA;
+    }
+    return '1s';
+  });
+
   const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
 
-  const [livePrice, setLivePrice] = useState<number>(targetData.price);
+  const [livePrice, setLivePrice] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const savedRange = localStorage.getItem('selected_time_range');
+      if (savedRange && savedRange in PERIOD_DATA) {
+        const savedPrice = localStorage.getItem(`live_price_${savedRange}`);
+        if (savedPrice) {
+          const parsed = Number(savedPrice);
+          if (!isNaN(parsed)) return parsed;
+        }
+      }
+    }
+    return targetData.price;
+  });
+
   const [basePrice, setBasePrice] = useState<number>(targetData.base);
   const [periodOpen, setPeriodOpen] = useState<number>(targetData.open);
   
-  const [priceChange, setPriceChange] = useState<number>(targetData.price - targetData.base);
-  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((targetData.price - targetData.base) / targetData.base) * 100).toFixed(2)));
+  const [priceChange, setPriceChange] = useState<number>(livePrice - targetData.base);
+  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((livePrice - targetData.base) / targetData.base) * 100).toFixed(2)));
   
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
-  const [dayHigh, setDayHigh] = useState<number>(targetData.high);
-  const [dayLow, setDayLow] = useState<number>(targetData.low);
+  const [dayHigh, setDayHigh] = useState<number>(Math.max(targetData.high, livePrice));
+  const [dayLow, setDayLow] = useState<number>(Math.min(targetData.low, livePrice));
 
   const [chartType, setChartType] = useState<'line' | 'candlestick' | 'ohlc'>('candlestick');
   const [feedStatus, setFeedStatus] = useState<'Connected' | 'Reconnecting...' | 'Disconnected'>('Connected');
@@ -51,32 +71,9 @@ export default function StockChart() {
     marketOpenRef.current = marketInfo.isLive;
   }, [marketInfo.isLive]);
 
-  // Load data tersimpan dari localStorage secara aman setelah komponen ter-mount di browser
+  // Tandai bahwa komponen sudah siap di client side
   useEffect(() => {
     setIsClientReady(true);
-    if (typeof window !== 'undefined') {
-      const savedRange = localStorage.getItem('selected_time_range');
-      if (savedRange && savedRange in PERIOD_DATA) {
-        setTimeRange(savedRange as keyof typeof PERIOD_DATA);
-        
-        const savedPrice = localStorage.getItem(`live_price_${savedRange}`);
-        if (savedPrice) {
-          const parsedPrice = Number(savedPrice);
-          if (!isNaN(parsedPrice)) {
-            const meta = PERIOD_DATA[savedRange];
-            setLivePrice(parsedPrice);
-            setBasePrice(meta.base);
-            setPeriodOpen(meta.open);
-            const diff = parsedPrice - meta.base;
-            setPriceChange(Math.round(diff));
-            setPriceChangePercent(Number(((diff / meta.base) * 100).toFixed(2)));
-            setDayHigh(Math.max(meta.high, parsedPrice));
-            setDayLow(Math.min(meta.low, parsedPrice));
-            latestPriceRef.current = parsedPrice;
-          }
-        }
-      }
-    }
   }, []);
 
   // Update localStorage saat timeRange berubah
@@ -106,7 +103,6 @@ export default function StockChart() {
 
     let isDisposed = false;
 
-    // Bersihkan chart lama jika ada sebelum membuat yang baru
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
