@@ -3,38 +3,43 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Generator data statis mutlak per periode agar bentuk grafik tidak pernah berubah saat diklik ulang
+// Generator data saham acak yang realistis (gerigi & fluktuatif) namun tetap konsisten/statis
 const generateFixedPeriodData = (rangeKey: string) => {
-  const configs: Record<string, { base: number; target: number; count: number; step: number }> = {
-    '1S':  { base: 900, target: 950, count: 30,  step: 1.8 },
-    '1D':  { base: 910, target: 960, count: 40,  step: 1.5 },
-    '1W':  { base: 880, target: 945, count: 50,  step: 1.4 },
-    '1M':  { base: 850, target: 980, count: 60,  step: 2.2 },
-    '3M':  { base: 800, target: 1020, count: 60, step: 3.8 },
-    '1Y':  { base: 720, target: 1250, count: 60, step: 8.8 },
-    '3Y':  { base: 600, target: 1700, count: 60, step: 18.3 },
-    '5Y':  { base: 450, target: 2100, count: 60, step: 27.5 },
-    '10Y': { base: 280, target: 2800, count: 60, step: 42.0 },
-    'ALL': { base: 150, target: 3500, count: 60, step: 55.8 },
+  const configs: Record<string, { base: number; target: number; count: number; volatility: number }> = {
+    '1S':  { base: 900, target: 950, count: 30,  volatility: 6 },
+    '1D':  { base: 910, target: 960, count: 40,  volatility: 7 },
+    '1W':  { base: 880, target: 945, count: 50,  volatility: 10 },
+    '1M':  { base: 850, target: 980, count: 60,  volatility: 14 },
+    '3M':  { base: 800, target: 1020, count: 60, volatility: 20 },
+    '1Y':  { base: 720, target: 1250, count: 60, volatility: 35 },
+    '3Y':  { base: 600, target: 1700, count: 60, volatility: 50 },
+    '5Y':  { base: 450, target: 2100, count: 60, volatility: 70 },
+    '10Y': { base: 280, target: 2800, count: 60, volatility: 90 },
+    'ALL': { base: 150, target: 3500, count: 60, volatility: 120 },
   };
 
   const cfg = configs[rangeKey] || configs['1W'];
-  const staticBaseTime = 1782810000; // Timestamp paten (Juli 2026)
+  const staticBaseTime = 1782810000; 
   const rawData = [];
   
   let currentVal = cfg.base;
+  const totalSteps = cfg.count;
+  const priceRange = cfg.target - cfg.base;
 
-  for (let i = 0; i < cfg.count; i++) {
+  for (let i = 0; i < totalSteps; i++) {
     const time = staticBaseTime + (i * 3600 * 24);
     
-    // Pola gelombang matematis murni tanpa Math.random() agar hasilnya identik setiap dipanggil
-    const wave = Math.sin(i * 0.4) * 12 + Math.cos(i * 0.25) * 8;
-    const open = Number(currentVal.toFixed(2));
-    const trendAdd = cfg.step + (wave * 0.3);
-    const close = Number((open + trendAdd).toFixed(2));
+    // Pseudo-random deterministik (menghasilkan angka acak yang SELALU SAMA untuk index `i` yang sama)
+    const pseudoRandom = (Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1;
+    const noise = (pseudoRandom - 0.5) * cfg.volatility * 2;
     
-    const high = Number((Math.max(open, close) + Math.abs(Math.sin(i) * 5) + 3).toFixed(2));
-    const low = Number((Math.min(open, close) - Math.abs(Math.cos(i) * 5) - 3).toFixed(2));
+    // Tren dasar menuju target ditambah noise acak agar bergerigi
+    const linearTrend = (priceRange / totalSteps);
+    const open = currentVal;
+    const close = Number((open + linearTrend + noise).toFixed(2));
+    
+    const high = Number((Math.max(open, close) + Math.abs(pseudoRandom * cfg.volatility * 0.6) + 1).toFixed(2));
+    const low = Number((Math.min(open, close) - Math.abs((pseudoRandom * 0.5) * cfg.volatility * 0.6) - 1).toFixed(2));
     
     currentVal = close;
     rawData.push({
@@ -43,11 +48,11 @@ const generateFixedPeriodData = (rangeKey: string) => {
       high: Math.max(high, open, close),
       low: Math.min(low, open, close),
       close,
-      volume: Math.floor(Math.abs(Math.sin(i) * 12000) + 3000),
+      volume: Math.floor(Math.abs(pseudoRandom * 15000) + 3000),
     });
   }
 
-  // Set titik penutupan terakhir agar pas dengan target harga periode tersebut
+  // Paksa titik terakhir pas dengan target harga
   if (rawData.length > 0) {
     rawData[rawData.length - 1].close = cfg.target;
   }
