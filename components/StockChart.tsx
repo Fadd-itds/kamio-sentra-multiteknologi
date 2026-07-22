@@ -27,7 +27,7 @@ export default function StockChart() {
   const emaSeriesRef = useRef<any>(null);
   const historyRef = useRef<any[]>([]); 
   
-  const [stockInfo, setStockInfo] = useState<any>({ marketCap: 1710000000000, shares: 1800000000 });
+  const [stockInfo] = useState<any>({ marketCap: 1710000000000, shares: 1800000000 });
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
   
   const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>('1W');
@@ -41,7 +41,7 @@ export default function StockChart() {
   const [priceChange, setPriceChange] = useState<number>(targetData.price - targetData.base);
   const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((targetData.price - targetData.base) / targetData.base) * 100).toFixed(2)));
   
-  const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
+  const [priceFlash] = useState<'up' | 'down' | null>(null);
   
   const [dayHigh, setDayHigh] = useState<number>(targetData.high);
   const [dayLow, setDayLow] = useState<number>(targetData.low);
@@ -62,13 +62,6 @@ export default function StockChart() {
     ma?: number;
     ema?: number;
   }>({});
-
-  const latestPriceRef = useRef<number>(livePrice);
-  const marketOpenRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    marketOpenRef.current = marketInfo.isLive;
-  }, [marketInfo.isLive]);
 
   useEffect(() => {
     setIsClientReady(true);
@@ -254,21 +247,20 @@ export default function StockChart() {
     const loadData = async () => {
       try {
         let sortedRaw = [];
-
-        // Generate data dummy aman untuk setiap periode jika API lokal gagal/tidak ada
         const baseP = PERIOD_DATA[timeRange].price;
         const nowSec = Math.floor(Date.now() / 1000);
-        let currentP = baseP - 20;
+        let currentP = baseP - 30;
 
-        sortedRaw = Array.from({ length: 45 }, (_, i) => {
-          const time = nowSec - ((45 - i) * 3600 * 24);
+        // Pastikan selalu ada minimal 50 data agar indikator MA/EMA tidak kosong/NaN
+        sortedRaw = Array.from({ length: 50 }, (_, i) => {
+          const time = nowSec - ((50 - i) * 3600 * 24);
           const open = currentP;
-          const change = (Math.random() * 10) - 4;
+          const change = (Math.random() * 12) - 5;
           const close = Number((open + change).toFixed(2));
-          const high = Number((Math.max(open, close) + Math.random() * 3).toFixed(2));
-          const low = Number((Math.min(open, close) - Math.random() * 3).toFixed(2));
+          const high = Number((Math.max(open, close) + Math.random() * 4).toFixed(2));
+          const low = Number((Math.min(open, close) - Math.random() * 4).toFixed(2));
           currentP = close;
-          return { time, open, high, low, close, volume: Math.floor(Math.random() * 10000) + 1000 };
+          return { time, open, high, low, close, volume: Math.floor(Math.random() * 15000) + 1000 };
         });
 
         if (isDisposed || sortedRaw.length === 0) return;
@@ -285,7 +277,6 @@ export default function StockChart() {
         setBasePrice(calculatedBase);
         setPeriodOpen(calculatedOpen);
         setLivePrice(finalClosePrice);
-        latestPriceRef.current = finalClosePrice;
 
         const diff = finalClosePrice - calculatedBase;
         setPriceChange(Math.round(diff));
@@ -295,7 +286,7 @@ export default function StockChart() {
         setDayLow(calculatedLow);
 
         const formattedHistory = sortedRaw.map((row: any) => ({
-          time: typeof row.time === 'string' ? Math.floor(new Date(row.time).getTime() / 1000) : row.time,
+          time: row.time,
           open: Number(row.open.toFixed(2)),
           high: Number(row.high.toFixed(2)),
           low: Number(row.low.toFixed(2)),
@@ -527,7 +518,7 @@ export default function StockChart() {
 
       </div>
 
-      {/* CHART CONFIGURATION CONTROLS */}
+      {/* CHART CONFIGURATION CONTROLS & PERIOD SELECTION */}
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
         <div className="flex items-center gap-6 flex-wrap">
           <div className="flex items-center gap-3">
@@ -558,7 +549,7 @@ export default function StockChart() {
           </div>
         </div>
 
-        {/* PERIOD SELECTION */}
+        {/* PERIOD SELECTION KOTAK */}
         <div className="flex items-center gap-3 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
           <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide whitespace-nowrap">Period:</span>
           <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
