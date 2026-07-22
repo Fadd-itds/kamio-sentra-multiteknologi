@@ -5,12 +5,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = searchParams.get('range') || '1y';
 
-    const symbol = 'BRPT.JK'; 
+    const symbol = 'KMIO.JK'; // Disamakan ke KMIO.JK
     const now = Math.floor(Date.now() / 1000);
 
-    // GENERATOR INTRADAY LIVE (1s, 1m, 1h) AGAR SELALU UPDATE KE WAKTU SEKARANG
+    // GENERATOR INTRADAY LIVE (1s, 1m, 1h)
     if (range === '1s' || range === '1m' || range === '1h' || range === '1m_time') {
-      let basePrice = 966.30; // Sesuaikan dengan harga terakhir
+      let basePrice = 966.30;
       const count = range === '1s' ? 60 : 40;
       const intervalSec = range === '1s' ? 1 : (range === '1h' ? 300 : 60);
 
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
         const fluctuation = Number(((Math.random() * 2) - 1).toFixed(2));
         basePrice = Number((basePrice + fluctuation).toFixed(2));
         return {
-          time: time,
+          time: time, // Pastikan berupa angka timestamp untuk intraday
           open: Number((basePrice - 0.3).toFixed(2)),
           high: Number((basePrice + 0.8).toFixed(2)),
           low: Number((basePrice - 0.8).toFixed(2)),
