@@ -8,9 +8,9 @@ export async function GET(request: Request) {
     const symbol = 'KMIO.JK'; 
     const now = Math.floor(Date.now() / 1000);
 
-    // GENERATOR INTRADAY LIVE (1s, 1m, 1h) AGAR SELALU UPDATE KE WAKTU SEKARANG
-    if (range === '1s' || range === '1m' || range === '1h' || range === '1m_time') {
-      let basePrice = 960; // Dikembalikan ke 960
+    // GENERATOR INTRADAY LIVE (1s, 1m, 1h)
+    if (range === '1s' || range === '1m' || range === '1h' || range === '1m_time' || range === '1D') {
+      let basePrice = 960; 
       const count = range === '1s' ? 60 : 40;
       const intervalSec = range === '1s' ? 1 : (range === '1h' ? 300 : 60);
 
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
         const fluctuation = Number(((Math.random() * 2) - 1).toFixed(2));
         basePrice = Number((basePrice + fluctuation).toFixed(2));
         return {
-          time: time,
+          time: time, // Berupa angka detik
           open: Number((basePrice - 0.3).toFixed(2)),
           high: Number((basePrice + 0.8).toFixed(2)),
           low: Number((basePrice - 0.8).toFixed(2)),
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     let period1 = now - 365 * 24 * 60 * 60; 
     let yahooInterval = '1d'; 
 
-    if (range === '1d') {
+    if (range === '1d' || range === '1W') {
       period1 = now - 7 * 86400; 
       yahooInterval = '1d';
     } else if (range === '3m') {
@@ -60,11 +60,14 @@ export async function GET(request: Request) {
       const currentYear = new Date().getFullYear();
       period1 = Math.floor(new Date(currentYear, 0, 1).getTime() / 1000);
       yahooInterval = '1d';
-    } else if (range === '1y') {
+    } else if (range === '1y' || range === '1Y') {
       period1 = now - 365 * 86400;
       yahooInterval = '1d';
-    } else if (range === '5y') {
+    } else if (range === '3Y' || range === '5y' || range === '5Y') {
       period1 = now - 5 * 365 * 86400;
+      yahooInterval = '1wk';
+    } else if (range === '10Y' || range === 'ALL') {
+      period1 = now - 10 * 365 * 86400;
       yahooInterval = '1wk';
     }
 
@@ -103,17 +106,9 @@ export async function GET(request: Request) {
       const validHigh = highVal !== null && highVal !== undefined && !isNaN(highVal) ? highVal : Math.max(closeVal, validOpen);
       const validLow = lowVal !== null && lowVal !== undefined && !isNaN(lowVal) ? lowVal : Math.min(closeVal, validOpen);
 
-      let timeValue: string | number = ts;
-      if (yahooInterval === '1d' || yahooInterval === '1wk' || yahooInterval === '1mo') {
-        const dateObj = new Date(ts * 1000);
-        const year = dateObj.getUTCFullYear();
-        const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(dateObj.getUTCDate()).padStart(2, '0');
-        timeValue = `${year}-${month}-${day}`;
-      }
-
+      // Pertahankan `ts` (angka timestamp detik) agar konsisten dibaca oleh Lightweight Charts
       return {
-        time: timeValue, 
+        time: ts, 
         open: Number(validOpen.toFixed(2)),
         high: Number(validHigh.toFixed(2)),
         low: Number(validLow.toFixed(2)),
@@ -122,11 +117,7 @@ export async function GET(request: Request) {
       };
     })
     .filter((row: any) => row !== null)
-    .sort((a: any, b: any) => {
-      const timeA = typeof a.time === 'string' ? new Date(a.time).getTime() : a.time;
-      const timeB = typeof b.time === 'string' ? new Date(b.time).getTime() : b.time;
-      return timeA - timeB;
-    });
+    .sort((a: any, b: any) => a.time - b.time);
 
     const currentPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 960;
     const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? currentPrice;

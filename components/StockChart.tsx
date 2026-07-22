@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Daftar period disesuaikan dengan standar Stockbit
+// Daftar fallback period jika API kosong
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
   '1D': { price: 960, base: 950, open: 950, high: 975, low: 940 },   
   '1W': { price: 945, base: 920, open: 925, high: 965, low: 910 },   
@@ -224,7 +224,7 @@ export default function StockChart() {
     }
   };
 
-  // 2. LOAD & UPDATE DATA SAAT TIMRANGE ATAU CHARTTYPE BERUBAH
+  // 2. LOAD & UPDATE DATA DENGAN NORMALISASI OTOMATIS BERBASIS API
   useEffect(() => {
     if (!isClientReady || !chartRef.current) return;
 
@@ -289,40 +289,44 @@ export default function StockChart() {
 
         if (json.history && json.history.length > 0) {
           const rawHistory = json.history;
-          const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1D'];
           
-          // Menggunakan data mentah asli tanpa scaleFactor agar candle bervariasi secara natural
-          const formattedHistory = rawHistory.map((row: any) => ({
+          // Urutkan data berdasarkan waktu secara ascending (terlama ke terbaru)
+          const sortedRaw = [...rawHistory].sort((a: any, b: any) => a.time - b.time);
+          const firstRow = sortedRaw[0];
+          const lastRow = sortedRaw[sortedRaw.length - 1];
+
+          // Ambil harga referensi real dari data history pertama & terakhir
+          const calculatedBase = firstRow.close;
+          const calculatedOpen = firstRow.open;
+          const calculatedHigh = Math.max(...sortedRaw.map((r: any) => r.high));
+          const calculatedLow = Math.min(...sortedRaw.map((r: any) => r.low));
+          const finalClosePrice = lastRow.close;
+
+          setBasePrice(calculatedBase);
+          setPeriodOpen(calculatedOpen);
+          setLivePrice(finalClosePrice);
+          latestPriceRef.current = finalClosePrice;
+
+          const diff = finalClosePrice - calculatedBase;
+          setPriceChange(Math.round(diff));
+          setPriceChangePercent(Number(((diff / calculatedBase) * 100).toFixed(2)));
+
+          setDayHigh(calculatedHigh);
+          setDayLow(calculatedLow);
+
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`live_price_${timeRange}`, finalClosePrice.toString());
+          }
+
+          // Format data bersih tanpa scaleFactor pengubah bentuk
+          const formattedHistory = sortedRaw.map((row: any) => ({
             time: row.time,
             open: Number(row.open.toFixed(2)),
             high: Number(row.high.toFixed(2)),
             low: Number(row.low.toFixed(2)),
             close: Number(row.close.toFixed(2)),
             volume: row.volume || 1000,
-          })).sort((a: any, b: any) => a.time - b.time);
-
-          if (formattedHistory.length > 0) {
-            const lastIdx = formattedHistory.length - 1;
-            const finalClosePrice = formattedHistory[lastIdx].close;
-
-            setLivePrice(finalClosePrice);
-            latestPriceRef.current = finalClosePrice;
-
-            const diff = finalClosePrice - targetMeta.base;
-            setPriceChange(Math.round(diff));
-            setPriceChangePercent(Number(((diff / targetMeta.base) * 100).toFixed(2)));
-
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(`live_price_${timeRange}`, finalClosePrice.toString());
-            }
-
-            if (finalClosePrice > formattedHistory[lastIdx].high) {
-              formattedHistory[lastIdx].high = finalClosePrice;
-            }
-            if (finalClosePrice < formattedHistory[lastIdx].low) {
-              formattedHistory[lastIdx].low = finalClosePrice;
-            }
-          }
+          }));
 
           historyRef.current = formattedHistory;
 
@@ -362,24 +366,17 @@ export default function StockChart() {
             emaSeriesRef.current.setData(emaData);
             chartRef.current.timeScale().fitContent();
 
-            const lastRowData = historyRef.current[historyRef.current.length - 1];
-            if (lastRowData) {
-              const currentActivePrice = lastRowData.close;
-              setDayHigh(Math.max(lastRowData.high, targetMeta.high, currentActivePrice));
-              setDayLow(Math.min(lastRowData.low, targetMeta.low, currentActivePrice));
-              
-              setLegendData({
-                time: new Date(lastRowData.time * 1000).toLocaleString('id-ID'),
-                open: lastRowData.open,
-                high: lastRowData.high,
-                low: lastRowData.low,
-                close: lastRowData.close,
-                value: lastRowData.close,
-                volume: lastRowData.volume,
-                ma: maData[maData.length - 1]?.value,
-                ema: emaData[emaData.length - 1]?.value,
-              });
-            }
+            setLegendData({
+              time: new Date(lastRow.time * 1000).toLocaleString('id-ID'),
+              open: lastRow.open,
+              high: lastRow.high,
+              low: lastRow.low,
+              close: lastRow.close,
+              value: lastRow.close,
+              volume: lastRow.volume,
+              ma: maData[maData.length - 1]?.value,
+              ema: emaData[emaData.length - 1]?.value,
+            });
           }
         }
         if (!isDisposed) {
@@ -478,9 +475,8 @@ export default function StockChart() {
             emaSeriesRef.current.update({ time: activeRow.time, value: currentEmaVal });
           }
 
-          const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1D'];
-          const diff = activeRow.close - currentMeta.base;
-          const diffPercent = (diff / currentMeta.base) * 100;
+          const diff = activeRow.close - basePrice;
+          const diffPercent = (diff / basePrice) * 100;
 
           setLivePrice(activeRow.close);
           setPriceChange(Math.round(diff));
@@ -511,7 +507,7 @@ export default function StockChart() {
     return () => {
       clearInterval(liveInterval);
     };
-  }, [timeRange, chartType]);
+  }, [timeRange, chartType, basePrice]);
 
   const formatRupiah = (num: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
 
