@@ -92,7 +92,9 @@ export default function StockChart() {
       
       const target = PERIOD_DATA[range];
       const savedPrice = localStorage.getItem(`live_price_${range}`);
-      const activePrice = savedPrice ? Number(savedPrice) : target.price;
+      
+      // Ambil dari history terakhir jika ada agar tidak melompat
+      const activePrice = savedPrice ? Number(savedPrice) : (historyRef.current.length > 0 ? historyRef.current[historyRef.current.length - 1].close : target.price);
 
       setLivePrice(activePrice);
       setBasePrice(target.base);
@@ -187,7 +189,6 @@ export default function StockChart() {
           const firstClose = rawHistory[0]?.close || targetMeta.base;
           const currentActivePrice = latestPriceRef.current || livePrice || targetMeta.price;
           
-          // Scaling agar history menyambung mulus ke harga live aktif
           const scaleFactor = currentActivePrice / firstClose;
 
           const formattedHistory = rawHistory.map((row: any) => {
@@ -203,12 +204,25 @@ export default function StockChart() {
 
           if (formattedHistory.length > 0) {
             const lastIdx = formattedHistory.length - 1;
-            formattedHistory[lastIdx].close = currentActivePrice;
-            if (currentActivePrice > formattedHistory[lastIdx].high) {
-              formattedHistory[lastIdx].high = currentActivePrice;
+            const finalClosePrice = formattedHistory[lastIdx].close;
+
+            // Kunci agar live price sinkron dengan ujung akhir data history baru
+            setLivePrice(finalClosePrice);
+            latestPriceRef.current = finalClosePrice;
+
+            const diff = finalClosePrice - targetMeta.base;
+            setPriceChange(Math.round(diff));
+            setPriceChangePercent(Number(((diff / targetMeta.base) * 100).toFixed(2)));
+
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`live_price_${timeRange}`, finalClosePrice.toString());
             }
-            if (currentActivePrice < formattedHistory[lastIdx].low) {
-              formattedHistory[lastIdx].low = currentActivePrice;
+
+            if (finalClosePrice > formattedHistory[lastIdx].high) {
+              formattedHistory[lastIdx].high = finalClosePrice;
+            }
+            if (finalClosePrice < formattedHistory[lastIdx].low) {
+              formattedHistory[lastIdx].low = finalClosePrice;
             }
           }
 
