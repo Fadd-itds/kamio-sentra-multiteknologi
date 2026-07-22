@@ -79,21 +79,12 @@ export default function StockChart() {
 
   const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
     setTimeRange(range);
-    
-    if (seriesRef.current) {
-      seriesRef.current.setData([]);
-    }
-    if (volumeSeriesRef.current) {
-      volumeSeriesRef.current.setData([]);
-    }
 
     if (typeof window !== 'undefined') {
       localStorage.setItem('selected_time_range', range);
       
       const target = PERIOD_DATA[range];
       const savedPrice = localStorage.getItem(`live_price_${range}`);
-      
-      // Ambil dari history terakhir jika ada agar tidak melompat
       const activePrice = savedPrice ? Number(savedPrice) : (historyRef.current.length > 0 ? historyRef.current[historyRef.current.length - 1].close : target.price);
 
       setLivePrice(activePrice);
@@ -110,17 +101,9 @@ export default function StockChart() {
     }
   };
 
+  // 1. INISISALISASI CHART SEKALI SAJA SAAT MOUNT
   useEffect(() => {
     if (!isClientReady || !chartContainerRef.current) return;
-
-    let isDisposed = false;
-
-    if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-      volumeSeriesRef.current = null;
-    }
 
     const containerWidth = chartContainerRef.current.clientWidth || 600;
 
@@ -139,29 +122,9 @@ export default function StockChart() {
       timeScale: { 
         borderColor: '#d1d5db', 
         timeVisible: true,
-        secondsVisible: timeRange === '1s' || timeRange === '1m_time', 
       },
     });
     chartRef.current = chart;
-
-    let series: any;
-    if (chartType === 'line') {
-      series = chart.addSeries(LineSeries, { color: '#16a34a', lineWidth: 2 });
-    } else if (chartType === 'candlestick') {
-      series = chart.addSeries(CandlestickSeries, {
-        upColor: '#16a34a',
-        downColor: '#dc2626',
-        borderVisible: false,
-        wickUpColor: '#16a34a',
-        wickDownColor: '#dc2626',
-      });
-    } else {
-      series = chart.addSeries(BarSeries, {
-        upColor: '#16a34a',
-        downColor: '#dc2626',
-      });
-    }
-    seriesRef.current = series;
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#93c5fd',
@@ -172,6 +135,51 @@ export default function StockChart() {
 
     chart.priceScale('').applyOptions({
       scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        seriesRef.current = null;
+        volumeSeriesRef.current = null;
+      }
+    };
+  }, [isClientReady]);
+
+  // 2. LOAD & UPDATE DATA SAAT TIMRANGE ATAU CHARTTYPE BERUBAH (TANPA HAPUS CHART)
+  useEffect(() => {
+    if (!isClientReady || !chartRef.current) return;
+
+    let isDisposed = false;
+
+    // Hapus series lama jika ada, lalu buat baru sesuai tipe chart
+    if (seriesRef.current) {
+      chartRef.current.removeSeries(seriesRef.current);
+      seriesRef.current = null;
+    }
+
+    let series: any;
+    if (chartType === 'line') {
+      series = chartRef.current.addSeries(LineSeries, { color: '#16a34a', lineWidth: 2 });
+    } else if (chartType === 'candlestick') {
+      series = chartRef.current.addSeries(CandlestickSeries, {
+        upColor: '#16a34a',
+        downColor: '#dc2626',
+        borderVisible: false,
+        wickUpColor: '#16a34a',
+        wickDownColor: '#dc2626',
+      });
+    } else {
+      series = chartRef.current.addSeries(BarSeries, {
+        upColor: '#16a34a',
+        downColor: '#dc2626',
+      });
+    }
+    seriesRef.current = series;
+
+    chartRef.current.timeScale().applyOptions({
+      secondsVisible: timeRange === '1s' || timeRange === '1m_time',
     });
 
     const loadData = async () => {
@@ -191,22 +199,19 @@ export default function StockChart() {
           
           const scaleFactor = currentActivePrice / firstClose;
 
-          const formattedHistory = rawHistory.map((row: any) => {
-            return {
-              time: row.time,
-              open: Number((row.open * scaleFactor).toFixed(2)),
-              high: Number((row.high * scaleFactor).toFixed(2)),
-              low: Number((row.low * scaleFactor).toFixed(2)),
-              close: Number((row.close * scaleFactor).toFixed(2)),
-              volume: row.volume || 1000,
-            };
-          });
+          const formattedHistory = rawHistory.map((row: any) => ({
+            time: row.time,
+            open: Number((row.open * scaleFactor).toFixed(2)),
+            high: Number((row.high * scaleFactor).toFixed(2)),
+            low: Number((row.low * scaleFactor).toFixed(2)),
+            close: Number((row.close * scaleFactor).toFixed(2)),
+            volume: row.volume || 1000,
+          })).sort((a: any, b: any) => a.time - b.time);
 
           if (formattedHistory.length > 0) {
             const lastIdx = formattedHistory.length - 1;
             const finalClosePrice = formattedHistory[lastIdx].close;
 
-            // Kunci agar live price sinkron dengan ujung akhir data history baru
             setLivePrice(finalClosePrice);
             latestPriceRef.current = finalClosePrice;
 
@@ -242,7 +247,7 @@ export default function StockChart() {
           if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current) {
             seriesRef.current.setData(mainData);
             volumeSeriesRef.current.setData(volumeData);
-            chart.timeScale().fitContent();
+            chartRef.current.timeScale().fitContent();
 
             const lastRowData = historyRef.current[historyRef.current.length - 1];
             if (lastRowData) {
@@ -265,6 +270,13 @@ export default function StockChart() {
 
     loadData();
 
+    return () => {
+      isDisposed = true;
+    };
+  }, [isClientReady, chartType, timeRange]);
+
+  // 3. INTERVAL UPDATE REAL-TIME LIVE PRICE
+  useEffect(() => {
     let updateIntervalMs = 1000;
     if (timeRange === '1m_time') updateIntervalMs = 5000;
     if (timeRange === '1h') updateIntervalMs = 15000;
@@ -274,7 +286,7 @@ export default function StockChart() {
     }
 
     const liveInterval = setInterval(() => {
-      if (isDisposed || !marketOpenRef.current) return; 
+      if (!marketOpenRef.current) return; 
 
       const currentHistory = historyRef.current;
       if (currentHistory.length > 0 && seriesRef.current) {
@@ -311,7 +323,7 @@ export default function StockChart() {
           historyRef.current[lastIndex] = activeRow;
         }
 
-        if (!isDisposed && chartRef.current && seriesRef.current) {
+        if (chartRef.current && seriesRef.current) {
           if (chartType === 'line') {
             seriesRef.current.update({ time: activeRow.time, value: activeRow.close });
           } else {
@@ -343,16 +355,9 @@ export default function StockChart() {
     }, updateIntervalMs);
 
     return () => {
-      isDisposed = true;
       clearInterval(liveInterval);
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-        seriesRef.current = null;
-        volumeSeriesRef.current = null;
-      }
     };
-  }, [isClientReady, chartType, timeRange]);
+  }, [timeRange, chartType]);
 
   const formatRupiah = (num: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
 
