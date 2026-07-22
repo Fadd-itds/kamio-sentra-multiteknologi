@@ -21,7 +21,9 @@ export default function StockChart() {
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
-  const historyRef = useRef<any[]>([]); // Ref untuk menyimpan history agar aman di dalam interval
+  const seriesRef = useRef<any>(null);
+  const volumeSeriesRef = useRef<any>(null);
+  const historyRef = useRef<any[]>([]); 
   
   const [stockInfo, setStockInfo] = useState<any>(null);
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
@@ -77,6 +79,16 @@ export default function StockChart() {
 
   const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
     setTimeRange(range);
+    
+    // Kosongkan riwayat secara instan agar tidak konflik data antar periode
+    historyRef.current = [];
+    if (seriesRef.current) {
+      seriesRef.current.setData([]);
+    }
+    if (volumeSeriesRef.current) {
+      volumeSeriesRef.current.setData([]);
+    }
+
     if (typeof window !== 'undefined') {
       localStorage.setItem('selected_time_range', range);
       
@@ -104,6 +116,8 @@ export default function StockChart() {
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
+      seriesRef.current = null;
+      volumeSeriesRef.current = null;
     }
 
     const containerWidth = chartContainerRef.current.clientWidth || 600;
@@ -145,12 +159,14 @@ export default function StockChart() {
         downColor: '#dc2626',
       });
     }
+    seriesRef.current = series;
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#93c5fd',
       priceFormat: { type: 'volume' },
       priceScaleId: '',
     });
+    volumeSeriesRef.current = volumeSeries;
 
     chart.priceScale('').applyOptions({
       scaleMargins: { top: 0.8, bottom: 0 },
@@ -158,6 +174,10 @@ export default function StockChart() {
 
     const loadData = async () => {
       try {
+        if (seriesRef.current) {
+          seriesRef.current.setData([]);
+        }
+
         const apiParam = timeRange === '1m_time' ? '1m' : timeRange;
         const res = await fetch(`/api/stock?range=${apiParam}`);
         const json = await res.json();
@@ -201,9 +221,9 @@ export default function StockChart() {
             color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
           }));
 
-          if (!isDisposed && chartRef.current) {
-            series.setData(mainData);
-            volumeSeries.setData(volumeData);
+          if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current) {
+            seriesRef.current.setData(mainData);
+            volumeSeriesRef.current.setData(volumeData);
             chart.timeScale().fitContent();
 
             const lastRowData = historyRef.current[historyRef.current.length - 1];
@@ -239,7 +259,7 @@ export default function StockChart() {
       if (isDisposed || !marketOpenRef.current) return; 
 
       const currentHistory = historyRef.current;
-      if (currentHistory.length > 0 && series) {
+      if (currentHistory.length > 0 && seriesRef.current) {
         const lastIndex = currentHistory.length - 1;
         const lastRow = currentHistory[lastIndex];
 
@@ -255,7 +275,6 @@ export default function StockChart() {
         const currentTimestamp = Math.floor(Date.now() / 1000);
 
         if (timeRange === '1s') {
-          // Pastikan timestamp selalu maju minimal 1 detik dari candle sebelumnya
           const nextTimestamp = Math.max(currentTimestamp, lastRow.time + 1);
           activeRow = {
             time: nextTimestamp,
@@ -274,11 +293,11 @@ export default function StockChart() {
           historyRef.current[lastIndex] = activeRow;
         }
 
-        if (!isDisposed && chartRef.current) {
+        if (!isDisposed && chartRef.current && seriesRef.current) {
           if (chartType === 'line') {
-            series.update({ time: activeRow.time, value: activeRow.close });
+            seriesRef.current.update({ time: activeRow.time, value: activeRow.close });
           } else {
-            series.update({
+            seriesRef.current.update({
               time: activeRow.time,
               open: activeRow.open,
               high: activeRow.high,
@@ -311,6 +330,8 @@ export default function StockChart() {
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
+        seriesRef.current = null;
+        volumeSeriesRef.current = null;
       }
     };
   }, [isClientReady, chartType, timeRange]);
