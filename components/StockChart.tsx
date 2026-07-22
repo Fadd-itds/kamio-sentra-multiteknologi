@@ -3,17 +3,57 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
-  '1S': { price: 950, base: 950, open: 950, high: 960, low: 940 },   
-  '1D': { price: 960, base: 950, open: 950, high: 975, low: 940 },   
-  '1W': { price: 945, base: 920, open: 925, high: 965, low: 910 },   
-  '1M': { price: 980, base: 875, open: 875, high: 990, low: 870 },   
-  '3M': { price: 1020, base: 820, open: 825, high: 1040, low: 810 }, 
-  '1Y': { price: 1250, base: 740, open: 745, high: 1280, low: 720 }, 
-  '3Y': { price: 1700, base: 650, open: 660, high: 1750, low: 630 }, 
-  '5Y': { price: 2100, base: 480, open: 490, high: 2150, low: 460 }, 
-  '10Y':{ price: 2800, base: 300, open: 310, high: 2900, low: 280 }, 
-  'ALL':{ price: 3500, base: 200, open: 210, high: 3600, low: 180 }, 
+// Data dasar per period
+const PERIOD_CONFIG: Record<string, { price: number; base: number; open: number; high: number; low: number; count: number }> = {
+  '1S':  { price: 950, base: 950, open: 950, high: 965, low: 935, count: 30 },   
+  '1D':  { price: 960, base: 950, open: 950, high: 975, low: 940, count: 40 },   
+  '1W':  { price: 945, base: 920, open: 925, high: 965, low: 910, count: 50 },   
+  '1M':  { price: 980, base: 875, open: 875, high: 990, low: 870, count: 60 },   
+  '3M':  { price: 1020, base: 820, open: 825, high: 1040, low: 810, count: 60 }, 
+  '1Y':  { price: 1250, base: 740, open: 745, high: 1280, low: 720, count: 60 }, 
+  '3Y':  { price: 1700, base: 650, open: 660, high: 1750, low: 630, count: 60 }, 
+  '5Y':  { price: 2100, base: 480, open: 490, high: 2150, low: 460, count: 60 }, 
+  '10Y': { price: 2800, base: 300, open: 310, high: 2900, low: 280, count: 60 }, 
+  'ALL': { price: 3500, base: 200, open: 210, high: 3600, low: 180, count: 60 }, 
+};
+
+// Fungsi untuk menghasilkan data dummy yang konsisten (tidak berubah-ubah saat diklik ulang)
+const generateStableData = (rangeKey: string) => {
+  const config = PERIOD_CONFIG[rangeKey] || PERIOD_CONFIG['1W'];
+  const count = config.count;
+  const nowSec = Math.floor(Date.now() / 1000);
+  
+  let currentP = config.base;
+  const rawData = [];
+
+  // Gunakan rumus matematis tetap berdasarkan index (seed buatan sendiri) agar bentuknya konstan
+  for (let i = 0; i < count; i++) {
+    const time = nowSec - ((count - i) * 3600 * 24);
+    
+    // Pola naik-turun yang konsisten berdasarkan sinyal trigonometri & index
+    const wave = Math.sin(i * 0.5) * 8 + Math.cos(i * 0.2) * 5;
+    const open = currentP;
+    const close = Number((config.base + (i * ((config.price - config.base) / count)) + wave).toFixed(2));
+    const high = Number((Math.max(open, close) + Math.abs(Math.sin(i) * 6) + 2).toFixed(2));
+    const low = Number((Math.min(open, close) - Math.abs(Math.cos(i) * 6) - 2).toFixed(2));
+    
+    currentP = close;
+    rawData.push({
+      time,
+      open,
+      high: Math.max(high, open, close),
+      low: Math.min(low, open, close),
+      close,
+      volume: Math.floor(Math.abs(Math.sin(i) * 10000) + 2000),
+    });
+  }
+
+  // Pastikan titik terakhir pas dengan harga target di config
+  if (rawData.length > 0) {
+    rawData[rawData.length - 1].close = config.price;
+  }
+
+  return rawData;
 };
 
 export default function StockChart() {
@@ -30,9 +70,9 @@ export default function StockChart() {
   const [stockInfo] = useState<any>({ marketCap: 1710000000000, shares: 1800000000 });
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
   
-  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>('1W');
+  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_CONFIG>('1W');
 
-  const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1W'];
+  const targetData = PERIOD_CONFIG[timeRange] || PERIOD_CONFIG['1W'];
 
   const [livePrice, setLivePrice] = useState<number>(targetData.price);
   const [basePrice, setBasePrice] = useState<number>(targetData.base);
@@ -67,7 +107,7 @@ export default function StockChart() {
     setIsClientReady(true);
   }, []);
 
-  const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
+  const handlePeriodChange = (range: keyof typeof PERIOD_CONFIG) => {
     setTimeRange(range);
   };
 
@@ -188,7 +228,7 @@ export default function StockChart() {
     }
   };
 
-  // Load Data sesuai TimeRange
+  // Load Data sesuai TimeRange secara Stabil
   useEffect(() => {
     if (!isClientReady || !chartRef.current) return;
 
@@ -246,22 +286,7 @@ export default function StockChart() {
 
     const loadData = async () => {
       try {
-        let sortedRaw = [];
-        const baseP = PERIOD_DATA[timeRange].price;
-        const nowSec = Math.floor(Date.now() / 1000);
-        let currentP = baseP - 30;
-
-        // Pastikan selalu ada minimal 50 data agar indikator MA/EMA tidak kosong/NaN
-        sortedRaw = Array.from({ length: 50 }, (_, i) => {
-          const time = nowSec - ((50 - i) * 3600 * 24);
-          const open = currentP;
-          const change = (Math.random() * 12) - 5;
-          const close = Number((open + change).toFixed(2));
-          const high = Number((Math.max(open, close) + Math.random() * 4).toFixed(2));
-          const low = Number((Math.min(open, close) - Math.random() * 4).toFixed(2));
-          currentP = close;
-          return { time, open, high, low, close, volume: Math.floor(Math.random() * 15000) + 1000 };
-        });
+        const sortedRaw = generateStableData(timeRange);
 
         if (isDisposed || sortedRaw.length === 0) return;
 
