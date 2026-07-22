@@ -25,7 +25,6 @@ export default function StockChart() {
   const [stockInfo, setStockInfo] = useState<any>(null);
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
   
-  // State utama (diinisialisasi aman dari localStorage jika ada)
   const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_DATA>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('selected_time_range');
@@ -71,12 +70,10 @@ export default function StockChart() {
     marketOpenRef.current = marketInfo.isLive;
   }, [marketInfo.isLive]);
 
-  // Tandai bahwa komponen sudah siap di client side
   useEffect(() => {
     setIsClientReady(true);
   }, []);
 
-  // Update localStorage saat timeRange berubah
   const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
     setTimeRange(range);
     if (typeof window !== 'undefined') {
@@ -122,7 +119,11 @@ export default function StockChart() {
         horzLines: { color: '#f3f4f6' },
       },
       rightPriceScale: { borderColor: '#d1d5db' },
-      timeScale: { borderColor: '#d1d5db', timeVisible: true },
+      timeScale: { 
+        borderColor: '#d1d5db', 
+        timeVisible: true,
+        secondsVisible: true, // Menampilkan detik secara presisi di sumbu X
+      },
     });
     chartRef.current = chart;
 
@@ -171,13 +172,23 @@ export default function StockChart() {
           const firstClose = rawHistory[0]?.close || targetMeta.base;
           const scaleFactor = targetMeta.price / firstClose;
 
-          currentHistoryData = rawHistory.map((row: any) => ({
-            ...row,
-            open: Number((row.open * scaleFactor).toFixed(2)),
-            high: Number((row.high * scaleFactor).toFixed(2)),
-            low: Number((row.low * scaleFactor).toFixed(2)),
-            close: Number((row.close * scaleFactor).toFixed(2)),
-          }));
+          // Generate timestamp riwayat berbasis waktu riil detik sekarang mundur ke belakang
+          const nowSeconds = Math.floor(Date.now() / 1000);
+          const intervalStep = timeRange === '1s' ? 1 : timeRange === '1m_time' ? 60 : 3600;
+
+          currentHistoryData = rawHistory.map((row: any, idx: number, arr: any[]) => {
+            const timeOffset = (arr.length - 1 - idx) * intervalStep;
+            const realTimestamp = nowSeconds - timeOffset;
+
+            return {
+              time: realTimestamp,
+              open: Number((row.open * scaleFactor).toFixed(2)),
+              high: Number((row.high * scaleFactor).toFixed(2)),
+              low: Number((row.low * scaleFactor).toFixed(2)),
+              close: Number((row.close * scaleFactor).toFixed(2)),
+              volume: row.volume || 1000,
+            };
+          });
 
           const lastIdx = currentHistoryData.length - 1;
           if (currentHistoryData[lastIdx]) {
@@ -235,50 +246,66 @@ export default function StockChart() {
       if (isDisposed || !marketOpenRef.current) return; 
 
       if (currentHistoryData.length > 0 && series) {
+        const currentTimestamp = Math.floor(Date.now() / 1000);
         const lastIndex = currentHistoryData.length - 1;
-        const lastRow = { ...currentHistoryData[lastIndex] };
-        
-        const oldPrice = lastRow.close;
-        const fluctuation = Number(((Math.random() * 6) - 3).toFixed(2));
-        let newClose = Number((oldPrice + fluctuation).toFixed(2));
-        if (newClose === oldPrice) newClose += 1;
+        const lastRow = currentHistoryData[lastIndex];
 
-        const flashType = newClose > oldPrice ? 'up' : 'down';
+        const fluctuation = Number(((Math.random() * 6) - 3).toFixed(2));
+        let newClose = Number((lastRow.close + fluctuation).toFixed(2));
+        if (newClose === lastRow.close) newClose += 1;
+
+        const flashType = newClose > lastRow.close ? 'up' : 'down';
         setPriceFlash(flashType);
         setTimeout(() => setPriceFlash(null), 300);
 
-        lastRow.close = newClose;
-        if (lastRow.close > lastRow.high) lastRow.high = lastRow.close;
-        if (lastRow.close < lastRow.low) lastRow.low = lastRow.close;
+        let activeRow: any;
 
-        currentHistoryData[lastIndex] = lastRow;
+        if (timeRange === '1s' && currentTimestamp > lastRow.time) {
+          // Buat bar / candle baru setiap detiknya untuk mode 1s
+          activeRow = {
+            time: currentTimestamp,
+            open: lastRow.close,
+            high: Math.max(lastRow.close, newClose),
+            low: Math.min(lastRow.close, newClose),
+            close: newClose,
+            volume: Math.floor(Math.random() * 5000) + 500,
+          };
+          currentHistoryData.push(activeRow);
+        } else {
+          // Update candle yang sama untuk timeframe lebih besar
+          activeRow = { ...lastRow };
+          activeRow.close = newClose;
+          if (activeRow.close > activeRow.high) activeRow.high = activeRow.close;
+          if (activeRow.close < activeRow.low) activeRow.low = activeRow.close;
+          currentHistoryData[lastIndex] = activeRow;
+        }
 
         if (!isDisposed && chartRef.current) {
           if (chartType === 'line') {
-            series.update({ time: lastRow.time, value: lastRow.close });
+            series.update({ time: activeRow.time, value: activeRow.close });
           } else {
             series.update({
-              time: lastRow.time,
-              open: lastRow.open,
-              high: lastRow.high,
-              low: lastRow.low,
-              close: lastRow.close,
+              time: activeRow.time,
+              open: activeRow.open,
+              high: activeRow.high,
+              low: activeRow.low,
+              close: activeRow.close,
             });
           }
 
           const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
-          const diff = lastRow.close - currentMeta.base;
+          const diff = activeRow.close - currentMeta.base;
           const diffPercent = (diff / currentMeta.base) * 100;
 
-          setLivePrice(lastRow.close);
+          setLivePrice(activeRow.close);
           setPriceChange(Math.round(diff));
           setPriceChangePercent(Number(diffPercent.toFixed(2)));
-          setDayHigh(lastRow.high);
-          setDayLow(lastRow.low);
-          latestPriceRef.current = lastRow.close;
+          setDayHigh(prev => Math.max(prev, activeRow.high));
+          setDayLow(prev => Math.min(prev, activeRow.low));
+          latestPriceRef.current = activeRow.close;
 
           if (typeof window !== 'undefined') {
-            localStorage.setItem(`live_price_${timeRange}`, lastRow.close.toString());
+            localStorage.setItem(`live_price_${timeRange}`, activeRow.close.toString());
           }
         }
       }
