@@ -5,7 +5,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = searchParams.get('range') || '1y';
 
-    const symbol = 'BRPT.JK'; // Gunakan simbol yang konsisten atau ubah ke KMIO.JK jika ingin melacak emiten tersebut
+    const symbol = 'BRPT.JK'; 
     const now = Math.floor(Date.now() / 1000);
 
     // KHUSUS RANGE 1S: Generate data per detik secara instan agar tidak kosong
@@ -95,19 +95,30 @@ export async function GET(request: Request) {
     const lows = quotes.low || [];
     const volumes = quotes.volume || [];
 
+    // Mapping data dengan validasi ketat terhadap nilai null/undefined dari Yahoo Finance
     const history = timestamps.map((ts: number, index: number) => {
       const closeVal = closes[index];
-      if (closeVal === null || closeVal === undefined) return null;
+      const openVal = opens[index];
+      const highVal = highs[index];
+      const lowVal = lows[index];
+
+      if (closeVal === null || closeVal === undefined || isNaN(closeVal)) return null;
+
+      const validOpen = openVal !== null && openVal !== undefined && !isNaN(openVal) ? openVal : closeVal;
+      const validHigh = highVal !== null && highVal !== undefined && !isNaN(highVal) ? highVal : Math.max(closeVal, validOpen);
+      const validLow = lowVal !== null && lowVal !== undefined && !isNaN(lowVal) ? lowVal : Math.min(closeVal, validOpen);
 
       return {
-        time: ts, // Tetap gunakan Unix timestamp (angka) agar konsisten dengan lightweight-charts
-        open: Number((opens[index] ?? closeVal).toFixed(2)),
-        high: Number((highs[index] ?? closeVal).toFixed(2)),
-        low: Number((lows[index] ?? closeVal).toFixed(2)),
+        time: ts, 
+        open: Number(validOpen.toFixed(2)),
+        high: Number(validHigh.toFixed(2)),
+        low: Number(validLow.toFixed(2)),
         close: Number(closeVal.toFixed(2)),
         volume: Number(volumes[index] ?? 0),
       };
-    }).filter((row: any) => row !== null && !isNaN(row.close));
+    })
+    .filter((row: any) => row !== null)
+    .sort((a: any, b: any) => a.time - b.time); // Urutkan timestamp secara ascending (dari masa lalu ke sekarang)
 
     const currentPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 962;
     const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? currentPrice;
