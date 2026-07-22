@@ -8,51 +8,47 @@ export async function GET(request: Request) {
     const symbol = 'BRPT.JK'; 
     const now = Math.floor(Date.now() / 1000);
 
-    // KHUSUS RANGE 1S: Generate data per detik secara instan agar tidak kosong
-    if (range === '1s') {
-      let basePrice = 962;
-      const history1s = Array.from({ length: 60 }, (_, i) => {
-        const time = now - (60 - i);
-        const fluctuation = Number(((Math.random() * 4) - 2).toFixed(2));
+    // GENERATOR INTRADAY LIVE (1s, 1m, 1h) AGAR SELALU UPDATE KE WAKTU SEKARANG
+    if (range === '1s' || range === '1m' || range === '1h' || range === '1m_time') {
+      let basePrice = 966.30; // Sesuaikan dengan harga terakhir
+      const count = range === '1s' ? 60 : 40;
+      const intervalSec = range === '1s' ? 1 : (range === '1h' ? 300 : 60);
+
+      const historyIntraday = Array.from({ length: count }, (_, i) => {
+        const time = now - (count - i) * intervalSec;
+        const fluctuation = Number(((Math.random() * 2) - 1).toFixed(2));
         basePrice = Number((basePrice + fluctuation).toFixed(2));
         return {
           time: time,
-          open: Number((basePrice - 0.5).toFixed(2)),
-          high: Number((basePrice + 1.2).toFixed(2)),
-          low: Number((basePrice - 1.2).toFixed(2)),
+          open: Number((basePrice - 0.3).toFixed(2)),
+          high: Number((basePrice + 0.8).toFixed(2)),
+          low: Number((basePrice - 0.8).toFixed(2)),
           close: basePrice,
-          volume: Math.floor(Math.random() * 500) + 50,
+          volume: Math.floor(Math.random() * 1000) + 100,
         };
       });
 
       return NextResponse.json({
         rawPrice: basePrice,
         price: `Rp${basePrice.toLocaleString('id-ID')}`,
-        change: "+12 (+1.26%)",
+        change: "+4.30 (+0.45%)",
         isPositive: true,
         status: 'Market Open',
         symbol: 'KMIO.JK',
         name: 'PT Kamio Sentra Multiteknologi Tbk',
         marketCap: basePrice * 1800000000,
         shares: 1800000000,
-        dayHigh: basePrice + 15,
-        dayLow: basePrice - 10,
-        history: history1s,
+        dayHigh: basePrice + 10,
+        dayLow: basePrice - 8,
+        history: historyIntraday,
       });
     }
 
     let period1 = now - 365 * 24 * 60 * 60; 
     let yahooInterval = '1d'; 
 
-    // Konfigurasi rentang waktu dan interval Yahoo Finance untuk pilihan lainnya
-    if (range === '1m_time' || range === '1m') {
+    if (range === '1d') {
       period1 = now - 7 * 86400; 
-      yahooInterval = '15m';
-    } else if (range === '1h') {
-      period1 = now - 30 * 86400; 
-      yahooInterval = '60m';
-    } else if (range === '1d') {
-      period1 = now - 60 * 86400; 
       yahooInterval = '1d';
     } else if (range === '3m') {
       period1 = now - 90 * 86400;
@@ -95,7 +91,6 @@ export async function GET(request: Request) {
     const lows = quotes.low || [];
     const volumes = quotes.volume || [];
 
-    // Mapping data dengan validasi ketat dan format waktu yang disesuaikan dengan interval chart
     const history = timestamps.map((ts: number, index: number) => {
       const closeVal = closes[index];
       const openVal = opens[index];
@@ -108,7 +103,6 @@ export async function GET(request: Request) {
       const validHigh = highVal !== null && highVal !== undefined && !isNaN(highVal) ? highVal : Math.max(closeVal, validOpen);
       const validLow = lowVal !== null && lowVal !== undefined && !isNaN(lowVal) ? lowVal : Math.min(closeVal, validOpen);
 
-      // Format waktu: 'YYYY-MM-DD' untuk harian/mingguan, Unix timestamp (number) untuk intraday
       let timeValue: string | number = ts;
       if (yahooInterval === '1d' || yahooInterval === '1wk' || yahooInterval === '1mo') {
         const dateObj = new Date(ts * 1000);
@@ -134,7 +128,7 @@ export async function GET(request: Request) {
       return timeA - timeB;
     });
 
-    const currentPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 962;
+    const currentPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 966.30;
     const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? currentPrice;
     const rawChange = currentPrice - previousClose;
     const changePercent = (rawChange / previousClose) * 100;
@@ -162,21 +156,21 @@ export async function GET(request: Request) {
     console.error("API Error:", error);
     const fallbackNow = Math.floor(Date.now() / 1000);
     return NextResponse.json({
-      rawPrice: 962,
-      price: "Rp962",
-      change: "+87 (+9.94%)",
+      rawPrice: 966.30,
+      price: "Rp966,30",
+      change: "+4.30 (+0.45%)",
       isPositive: true,
       status: 'Market Open',
       symbol: 'KMIO.JK',
       name: 'PT Kamio Sentra Multiteknologi Tbk',
-      marketCap: 962 * 1800000000,
+      marketCap: 966.30 * 1800000000,
       shares: 1800000000,
-      dayHigh: 980,
-      dayLow: 950,
+      dayHigh: 977.36,
+      dayLow: 940,
       history: [
-        { time: fallbackNow - 86400 * 3, open: 875, high: 900, low: 870, close: 890, volume: 1500000 },
-        { time: fallbackNow - 86400 * 2, open: 890, high: 930, low: 885, close: 920, volume: 2200000 },
-        { time: fallbackNow - 86400, open: 920, high: 965, low: 915, close: 962, volume: 3100000 },
+        { time: fallbackNow - 120, open: 962, high: 966, low: 961, close: 964, volume: 150000 },
+        { time: fallbackNow - 60, open: 964, high: 967, low: 963, close: 965, volume: 220000 },
+        { time: fallbackNow, open: 965, high: 967.5, low: 965, close: 966.30, volume: 310000 },
       ]
     });
   }
