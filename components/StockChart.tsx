@@ -17,20 +17,21 @@ const PERIOD_CONFIG: Record<string, { price: number; base: number; open: number;
   'ALL': { price: 3500, base: 200, open: 210, high: 3600, low: 180, count: 60 }, 
 };
 
-// Fungsi untuk menghasilkan data dummy yang konsisten (tidak berubah-ubah saat diklik ulang)
+// Fungsi untuk menghasilkan data dummy yang konsisten dan statis (tidak berubah saat diklik ulang)
 const generateStableData = (rangeKey: string) => {
   const config = PERIOD_CONFIG[rangeKey] || PERIOD_CONFIG['1W'];
   const count = config.count;
-  const nowSec = Math.floor(Date.now() / 1000);
+  
+  // Gunakan timestamp statis agar titik waktunya konstan dan tidak bergeser
+  const staticBaseTime = 1782810000; 
   
   let currentP = config.base;
   const rawData = [];
 
-  // Gunakan rumus matematis tetap berdasarkan index (seed buatan sendiri) agar bentuknya konstan
   for (let i = 0; i < count; i++) {
-    const time = nowSec - ((count - i) * 3600 * 24);
+    const time = staticBaseTime + (i * 3600 * 24);
     
-    // Pola naik-turun yang konsisten berdasarkan sinyal trigonometri & index
+    // Pola naik-turun yang konstan berdasarkan index `i`
     const wave = Math.sin(i * 0.5) * 8 + Math.cos(i * 0.2) * 5;
     const open = currentP;
     const close = Number((config.base + (i * ((config.price - config.base) / count)) + wave).toFixed(2));
