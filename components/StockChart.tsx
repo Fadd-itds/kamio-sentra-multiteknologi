@@ -23,6 +23,7 @@ export default function StockChart() {
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<any>(null);
+  const maSeriesRef = useRef<any>(null); // Referensi untuk garis Indikator MA20
   const historyRef = useRef<any[]>([]); 
   
   const [stockInfo, setStockInfo] = useState<any>(null);
@@ -143,20 +144,24 @@ export default function StockChart() {
         chartRef.current = null;
         seriesRef.current = null;
         volumeSeriesRef.current = null;
+        maSeriesRef.current = null;
       }
     };
   }, [isClientReady]);
 
-  // 2. LOAD & UPDATE DATA SAAT TIMRANGE ATAU CHARTTYPE BERUBAH (TANPA HAPUS CHART)
+  // 2. LOAD & UPDATE DATA SAAT TIMRANGE ATAU CHARTTYPE BERUBAH
   useEffect(() => {
     if (!isClientReady || !chartRef.current) return;
 
     let isDisposed = false;
 
-    // Hapus series lama jika ada, lalu buat baru sesuai tipe chart
     if (seriesRef.current) {
       chartRef.current.removeSeries(seriesRef.current);
       seriesRef.current = null;
+    }
+    if (maSeriesRef.current) {
+      chartRef.current.removeSeries(maSeriesRef.current);
+      maSeriesRef.current = null;
     }
 
     let series: any;
@@ -177,6 +182,15 @@ export default function StockChart() {
       });
     }
     seriesRef.current = series;
+
+    // Tambahkan kembali Line Series untuk Indikator MA20 (Warna Biru)
+    const maSeries = chartRef.current.addSeries(LineSeries, {
+      color: '#3b82f6',
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    maSeriesRef.current = maSeries;
 
     chartRef.current.timeScale().applyOptions({
       secondsVisible: timeRange === '1s' || timeRange === '1m_time',
@@ -244,9 +258,18 @@ export default function StockChart() {
             color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
           }));
 
-          if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current) {
+          // Hitung Moving Average 20 (MA20)
+          const maData = historyRef.current.map((row: any, idx: number, arr: any[]) => {
+            if (idx < 19) return null;
+            const slice = arr.slice(idx - 19, idx + 1);
+            const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+            return { time: row.time, value: Number((sum / 20).toFixed(2)) };
+          }).filter((item: any) => item !== null);
+
+          if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current && maSeriesRef.current) {
             seriesRef.current.setData(mainData);
             volumeSeriesRef.current.setData(volumeData);
+            maSeriesRef.current.setData(maData);
             chartRef.current.timeScale().fitContent();
 
             const lastRowData = historyRef.current[historyRef.current.length - 1];
@@ -275,7 +298,7 @@ export default function StockChart() {
     };
   }, [isClientReady, chartType, timeRange]);
 
-  // 3. INTERVAL UPDATE REAL-TIME LIVE PRICE
+  // 3. INTERVAL UPDATE REAL-TIME LIVE PRICE & MA RECALCULATION
   useEffect(() => {
     let updateIntervalMs = 1000;
     if (timeRange === '1m_time') updateIntervalMs = 5000;
@@ -336,6 +359,15 @@ export default function StockChart() {
             });
           }
 
+          // Update real-time nilai MA20 pada titik terakhir
+          if (maSeriesRef.current && historyRef.current.length >= 20) {
+            const arr = historyRef.current;
+            const slice = arr.slice(arr.length - 20, arr.length);
+            const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+            const currentMaValue = Number((sum / 20).toFixed(2));
+            maSeriesRef.current.update({ time: activeRow.time, value: currentMaValue });
+          }
+
           const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
           const diff = activeRow.close - currentMeta.base;
           const diffPercent = (diff / currentMeta.base) * 100;
@@ -391,6 +423,10 @@ export default function StockChart() {
             <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${marketInfo.badgeColor}`}>
               <span className={`w-2 h-2 rounded-full ${marketInfo.isLive ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
               {marketInfo.statusLabel}
+            </span>
+            {/* Legend Indikator MA20 */}
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+              <span className="w-2 h-2 rounded-full bg-blue-500" /> MA20
             </span>
           </div>
 
