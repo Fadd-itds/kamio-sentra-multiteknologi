@@ -3,17 +3,17 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
+// Daftar period disesuaikan dengan standar Stockbit
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
-  '1s':       { price: 962, base: 950, open: 950, high: 975, low: 940 },   
-  '1m_time': { price: 950, base: 920, open: 925, high: 965, low: 910 },   
-  '1h':       { price: 945, base: 900, open: 902, high: 970, low: 895 },   
-  '1d':       { price: 960, base: 875, open: 875, high: 980, low: 870 },   
-  '1m':       { price: 980, base: 820, open: 825, high: 990, low: 810 },   
-  '3m':       { price: 1020, base: 740, open: 745, high: 1040, low: 720 }, 
-  '6m':       { price: 1050, base: 650, open: 660, high: 1080, low: 630 }, 
-  'ytd':      { price: 1100, base: 580, open: 585, high: 1120, low: 550 }, 
-  '1y':       { price: 1250, base: 480, open: 490, high: 1280, low: 460 }, 
-  '5y':       { price: 2100, base: 200, open: 210, high: 2150, low: 180 }, 
+  '1D': { price: 960, base: 950, open: 950, high: 975, low: 940 },   
+  '1W': { price: 945, base: 920, open: 925, high: 965, low: 910 },   
+  '1M': { price: 980, base: 875, open: 875, high: 990, low: 870 },   
+  '3M': { price: 1020, base: 820, open: 825, high: 1040, low: 810 }, 
+  '1Y': { price: 1250, base: 740, open: 745, high: 1280, low: 720 }, 
+  '3Y': { price: 1700, base: 650, open: 660, high: 1750, low: 630 }, 
+  '5Y': { price: 2100, base: 480, open: 490, high: 2150, low: 460 }, 
+  '10Y':{ price: 2800, base: 300, open: 310, high: 2900, low: 280 }, 
+  'ALL':{ price: 3500, base: 200, open: 210, high: 3600, low: 180 }, 
 };
 
 export default function StockChart() {
@@ -23,7 +23,8 @@ export default function StockChart() {
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
   const volumeSeriesRef = useRef<any>(null);
-  const maSeriesRef = useRef<any>(null); // Referensi untuk garis Indikator MA20
+  const maSeriesRef = useRef<any>(null);
+  const emaSeriesRef = useRef<any>(null);
   const historyRef = useRef<any[]>([]); 
   
   const [stockInfo, setStockInfo] = useState<any>(null);
@@ -66,6 +67,21 @@ export default function StockChart() {
 
   const [chartType, setChartType] = useState<'line' | 'candlestick' | 'ohlc'>('candlestick');
   const [feedStatus, setFeedStatus] = useState<'Connected' | 'Reconnecting...' | 'Disconnected'>('Connected');
+
+  // State untuk Toggle & Tooltip Legend
+  const [showMa, setShowMa] = useState<boolean>(true);
+  const [showEma, setShowEma] = useState<boolean>(true);
+  const [legendData, setLegendData] = useState<{
+    time?: string;
+    open?: number;
+    high?: number;
+    low?: number;
+    close?: number;
+    value?: number;
+    volume?: number;
+    ma?: number;
+    ema?: number;
+  }>({});
 
   const latestPriceRef = useRef<number>(livePrice);
   const marketOpenRef = useRef<boolean>(false);
@@ -138,6 +154,50 @@ export default function StockChart() {
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
+    // Crosshair Move Handler untuk Tooltip Legend
+    chart.subscribeCrosshairMove((param: any) => {
+      if (!param.time || !param.point) {
+        // Jika kursor keluar, kembalikan ke data terakhir
+        if (historyRef.current.length > 0) {
+          const last = historyRef.current[historyRef.current.length - 1];
+          const lastMa = maSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'sma') : undefined;
+          const lastEma = emaSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'ema') : undefined;
+          setLegendData({
+            time: new Date(last.time * 1000).toLocaleString('id-ID'),
+            open: last.open,
+            high: last.high,
+            low: last.low,
+            close: last.close,
+            value: last.close,
+            volume: last.volume,
+            ma: lastMa,
+            ema: lastEma,
+          });
+        }
+        return;
+      }
+
+      const found = historyRef.current.find((item) => item.time === param.time);
+      if (found) {
+        // Ambil data series dari param.seriesData jika tersedia
+        const barData = param.seriesData.get(seriesRef.current);
+        const maData = maSeriesRef.current ? param.seriesData.get(maSeriesRef.current) : null;
+        const emaData = emaSeriesRef.current ? param.seriesData.get(emaSeriesRef.current) : null;
+
+        setLegendData({
+          time: new Date(found.time * 1000).toLocaleString('id-ID'),
+          open: found.open,
+          high: found.high,
+          low: found.low,
+          close: found.close,
+          value: barData?.value ?? found.close,
+          volume: found.volume,
+          ma: maData?.value,
+          ema: emaData?.value,
+        });
+      }
+    });
+
     return () => {
       if (chartRef.current) {
         chartRef.current.remove();
@@ -145,9 +205,26 @@ export default function StockChart() {
         seriesRef.current = null;
         volumeSeriesRef.current = null;
         maSeriesRef.current = null;
+        emaSeriesRef.current = null;
       }
     };
   }, [isClientReady]);
+
+  const getLatestIndicatorValue = (arr: any[], period: number, type: 'sma' | 'ema') => {
+    if (arr.length < period) return undefined;
+    if (type === 'sma') {
+      const slice = arr.slice(arr.length - period, arr.length);
+      const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+      return Number((sum / period).toFixed(2));
+    } else {
+      let k = 2 / (period + 1);
+      let ema = arr[0].close;
+      for (let i = 1; i < arr.length; i++) {
+        ema = (arr[i].close * k) + (ema * (1 - k));
+      }
+      return Number(ema.toFixed(2));
+    }
+  };
 
   // 2. LOAD & UPDATE DATA SAAT TIMRANGE ATAU CHARTTYPE BERUBAH
   useEffect(() => {
@@ -162,6 +239,10 @@ export default function StockChart() {
     if (maSeriesRef.current) {
       chartRef.current.removeSeries(maSeriesRef.current);
       maSeriesRef.current = null;
+    }
+    if (emaSeriesRef.current) {
+      chartRef.current.removeSeries(emaSeriesRef.current);
+      emaSeriesRef.current = null;
     }
 
     let series: any;
@@ -183,14 +264,25 @@ export default function StockChart() {
     }
     seriesRef.current = series;
 
-    // Tambahkan kembali Line Series untuk Indikator MA20 (Warna Biru)
+    // MA20 Series (Biru)
     const maSeries = chartRef.current.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
+      visible: showMa,
     });
     maSeriesRef.current = maSeries;
+
+    // EMA20 Series (Oranye)
+    const emaSeries = chartRef.current.addSeries(LineSeries, {
+      color: '#f97316',
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      visible: showEma,
+    });
+    emaSeriesRef.current = emaSeries;
 
     chartRef.current.timeScale().applyOptions({
       secondsVisible: timeRange === '1s' || timeRange === '1m_time',
@@ -258,7 +350,7 @@ export default function StockChart() {
             color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
           }));
 
-          // Hitung Moving Average 20 (MA20)
+          // Hitung Moving Average 20 (SMA)
           const maData = historyRef.current.map((row: any, idx: number, arr: any[]) => {
             if (idx < 19) return null;
             const slice = arr.slice(idx - 19, idx + 1);
@@ -266,16 +358,41 @@ export default function StockChart() {
             return { time: row.time, value: Number((sum / 20).toFixed(2)) };
           }).filter((item: any) => item !== null);
 
-          if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current && maSeriesRef.current) {
+          // Hitung Exponential Moving Average 20 (EMA)
+          let k = 2 / (20 + 1);
+          let prevEma = historyRef.current[0]?.close || 0;
+          const emaData = historyRef.current.map((row: any, idx: number) => {
+            if (idx === 0) {
+              prevEma = row.close;
+              return { time: row.time, value: row.close };
+            }
+            prevEma = (row.close * k) + (prevEma * (1 - k));
+            return { time: row.time, value: Number(prevEma.toFixed(2)) };
+          });
+
+          if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current && maSeriesRef.current && emaSeriesRef.current) {
             seriesRef.current.setData(mainData);
             volumeSeriesRef.current.setData(volumeData);
             maSeriesRef.current.setData(maData);
+            emaSeriesRef.current.setData(emaData);
             chartRef.current.timeScale().fitContent();
 
             const lastRowData = historyRef.current[historyRef.current.length - 1];
             if (lastRowData) {
               setDayHigh(Math.max(lastRowData.high, targetMeta.high, currentActivePrice));
               setDayLow(Math.min(lastRowData.low, targetMeta.low, currentActivePrice));
+              
+              setLegendData({
+                time: new Date(lastRowData.time * 1000).toLocaleString('id-ID'),
+                open: lastRowData.open,
+                high: lastRowData.high,
+                low: lastRowData.low,
+                close: lastRowData.close,
+                value: lastRowData.close,
+                volume: lastRowData.volume,
+                ma: maData[maData.length - 1]?.value,
+                ema: emaData[emaData.length - 1]?.value,
+              });
             }
           }
         }
@@ -298,7 +415,20 @@ export default function StockChart() {
     };
   }, [isClientReady, chartType, timeRange]);
 
-  // 3. INTERVAL UPDATE REAL-TIME LIVE PRICE & MA RECALCULATION
+  // Handle Visibility Toggle untuk MA & EMA
+  useEffect(() => {
+    if (maSeriesRef.current) {
+      maSeriesRef.current.applyOptions({ visible: showMa });
+    }
+  }, [showMa]);
+
+  useEffect(() => {
+    if (emaSeriesRef.current) {
+      emaSeriesRef.current.applyOptions({ visible: showEma });
+    }
+  }, [showEma]);
+
+  // 3. INTERVAL UPDATE REAL-TIME LIVE PRICE & INDICATOR RECALCULATION
   useEffect(() => {
     let updateIntervalMs = 1000;
     if (timeRange === '1m_time') updateIntervalMs = 5000;
@@ -359,13 +489,27 @@ export default function StockChart() {
             });
           }
 
-          // Update real-time nilai MA20 pada titik terakhir
+          // Update real-time nilai MA20 & EMA20
+          let currentMaVal: number | undefined;
+          let currentEmaVal: number | undefined;
+
           if (maSeriesRef.current && historyRef.current.length >= 20) {
             const arr = historyRef.current;
             const slice = arr.slice(arr.length - 20, arr.length);
             const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
-            const currentMaValue = Number((sum / 20).toFixed(2));
-            maSeriesRef.current.update({ time: activeRow.time, value: currentMaValue });
+            currentMaVal = Number((sum / 20).toFixed(2));
+            maSeriesRef.current.update({ time: activeRow.time, value: currentMaVal });
+          }
+
+          if (emaSeriesRef.current && historyRef.current.length > 0) {
+            const arr = historyRef.current;
+            let k = 2 / (20 + 1);
+            let prevEma = arr[0].close;
+            for(let i=1; i<arr.length; i++) {
+              prevEma = (arr[i].close * k) + (prevEma * (1 - k));
+            }
+            currentEmaVal = Number(prevEma.toFixed(2));
+            emaSeriesRef.current.update({ time: activeRow.time, value: currentEmaVal });
           }
 
           const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
@@ -378,6 +522,18 @@ export default function StockChart() {
           setDayHigh(prev => Math.max(prev, activeRow.high));
           setDayLow(prev => Math.min(prev, activeRow.low));
           latestPriceRef.current = activeRow.close;
+
+          setLegendData({
+            time: new Date(activeRow.time * 1000).toLocaleString('id-ID'),
+            open: activeRow.open,
+            high: activeRow.high,
+            low: activeRow.low,
+            close: activeRow.close,
+            value: activeRow.close,
+            volume: activeRow.volume,
+            ma: currentMaVal,
+            ema: currentEmaVal,
+          });
 
           if (typeof window !== 'undefined') {
             localStorage.setItem(`live_price_${timeRange}`, activeRow.close.toString());
@@ -423,10 +579,6 @@ export default function StockChart() {
             <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border shadow-2xs ${marketInfo.badgeColor}`}>
               <span className={`w-2 h-2 rounded-full ${marketInfo.isLive ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
               {marketInfo.statusLabel}
-            </span>
-            {/* Legend Indikator MA20 */}
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              <span className="w-2 h-2 rounded-full bg-blue-500" /> MA20
             </span>
           </div>
 
@@ -541,20 +693,33 @@ export default function StockChart() {
 
       {/* CHART CONFIGURATION CONTROLS */}
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
-        <div className="flex items-center gap-3">
-          <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide">Chart Type:</span>
-          <div className="flex gap-4 text-xs font-medium text-gray-600">
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input type="radio" name="chartType" checked={chartType === 'line'} onChange={() => setChartType('line')} />
-              Line
+        <div className="flex items-center gap-6 flex-wrap">
+          {/* Chart Type */}
+          <div className="flex items-center gap-3">
+            <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide">Type:</span>
+            <div className="flex gap-3 text-xs font-medium text-gray-600">
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="radio" name="chartType" checked={chartType === 'line'} onChange={() => setChartType('line')} /> Line
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="radio" name="chartType" checked={chartType === 'candlestick'} onChange={() => setChartType('candlestick')} /> Candlestick
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="radio" name="chartType" checked={chartType === 'ohlc'} onChange={() => setChartType('ohlc')} /> OHLC
+              </label>
+            </div>
+          </div>
+
+          {/* Indicator Toggles */}
+          <div className="flex items-center gap-3 border-l pl-4 border-gray-300">
+            <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide">Indicators:</span>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-blue-600 cursor-pointer">
+              <input type="checkbox" checked={showMa} onChange={(e) => setShowMa(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+              MA20
             </label>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input type="radio" name="chartType" checked={chartType === 'candlestick'} onChange={() => setChartType('candlestick')} />
-              Candlestick
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input type="radio" name="chartType" checked={chartType === 'ohlc'} onChange={() => setChartType('ohlc')} />
-              OHLC
+            <label className="flex items-center gap-1.5 text-xs font-medium text-orange-600 cursor-pointer">
+              <input type="checkbox" checked={showEma} onChange={(e) => setShowEma(e.target.checked)} className="rounded text-orange-600 focus:ring-orange-500" />
+              EMA20
             </label>
           </div>
         </div>
@@ -614,8 +779,28 @@ export default function StockChart() {
         </div>
       </div>
 
-      {/* LIGHTWEIGHT CHART CONTAINER */}
-      <div ref={chartContainerRef} className="w-full h-[450px] border border-gray-200 rounded-xl overflow-hidden shadow-2xs" />
+      {/* LIGHTWEIGHT CHART CONTAINER & TOOLTIP LEGEND OVERLAY */}
+      <div className="relative w-full">
+        {/* Tooltip Legend di atas Chart */}
+        <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur-xs border border-gray-200 rounded-lg p-2.5 text-[11px] shadow-sm flex flex-wrap gap-x-4 gap-y-1 font-mono pointer-events-none text-gray-700">
+          <div><span className="text-gray-400">Time:</span> <strong className="text-gray-900">{legendData.time || '-'}</strong></div>
+          {chartType !== 'line' ? (
+            <>
+              <div><span className="text-gray-400">O:</span> <strong className="text-gray-900">{legendData.open ?? '-'}</strong></div>
+              <div><span className="text-gray-400">H:</span> <strong className="text-gray-900">{legendData.high ?? '-'}</strong></div>
+              <div><span className="text-gray-400">L:</span> <strong className="text-gray-900">{legendData.low ?? '-'}</strong></div>
+              <div><span className="text-gray-400">C:</span> <strong className="text-gray-900">{legendData.close ?? '-'}</strong></div>
+            </>
+          ) : (
+            <div><span className="text-gray-400">Price:</span> <strong className="text-gray-900">{legendData.value ?? '-'}</strong></div>
+          )}
+          <div><span className="text-gray-400">Vol:</span> <strong className="text-gray-900">{legendData.volume ?? '-'}</strong></div>
+          {showMa && <div><span className="text-blue-500 font-bold">MA20:</span> <strong className="text-blue-600">{legendData.ma ?? '-'}</strong></div>}
+          {showEma && <div><span className="text-orange-500 font-bold">EMA20:</span> <strong className="text-orange-600">{legendData.ema ?? '-'}</strong></div>}
+        </div>
+
+        <div ref={chartContainerRef} className="w-full h-[450px] border border-gray-200 rounded-xl overflow-hidden shadow-2xs" />
+      </div>
 
       {/* FOOTER PREMIUM & MARKET FEED INDICATOR */}
       <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400 gap-2">
