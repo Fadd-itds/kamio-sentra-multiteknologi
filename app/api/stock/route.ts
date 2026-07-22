@@ -5,7 +5,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = searchParams.get('range') || '1y';
 
-    const symbol = 'BRPT.JK'; 
+    const symbol = 'BRPT.JK'; // Gunakan simbol yang konsisten atau ubah ke KMIO.JK jika ingin melacak emiten tersebut
     const now = Math.floor(Date.now() / 1000);
 
     // KHUSUS RANGE 1S: Generate data per detik secara instan agar tidak kosong
@@ -99,13 +99,8 @@ export async function GET(request: Request) {
       const closeVal = closes[index];
       if (closeVal === null || closeVal === undefined) return null;
 
-      const isDaily = yahooInterval === '1d' || yahooInterval === '1wk';
-      const timeValue = isDaily 
-        ? new Date(ts * 1000).toISOString().split('T')[0] 
-        : ts;
-
       return {
-        time: timeValue,
+        time: ts, // Tetap gunakan Unix timestamp (angka) agar konsisten dengan lightweight-charts
         open: Number((opens[index] ?? closeVal).toFixed(2)),
         high: Number((highs[index] ?? closeVal).toFixed(2)),
         low: Number((lows[index] ?? closeVal).toFixed(2)),
@@ -140,6 +135,7 @@ export async function GET(request: Request) {
 
   } catch (error: any) {
     console.error("API Error:", error);
+    const fallbackNow = Math.floor(Date.now() / 1000);
     return NextResponse.json({
       rawPrice: 962,
       price: "Rp962",
@@ -153,9 +149,9 @@ export async function GET(request: Request) {
       dayHigh: 980,
       dayLow: 950,
       history: [
-        { time: '2026-06-01', open: 875, high: 900, low: 870, close: 890, volume: 1500000 },
-        { time: '2026-06-02', open: 890, high: 930, low: 885, close: 920, volume: 2200000 },
-        { time: '2026-06-03', open: 920, high: 965, low: 915, close: 962, volume: 3100000 },
+        { time: fallbackNow - 86400 * 3, open: 875, high: 900, low: 870, close: 890, volume: 1500000 },
+        { time: fallbackNow - 86400 * 2, open: 890, high: 930, low: 885, close: 920, volume: 2200000 },
+        { time: fallbackNow - 86400, open: 920, high: 965, low: 915, close: 962, volume: 3100000 },
       ]
     });
   }

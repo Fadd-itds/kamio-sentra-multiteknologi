@@ -89,7 +89,8 @@ export default function StockChart() {
   const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
     setTimeRange(range);
     
-    historyRef.current = [];
+    // Jangan hapus historyRef secara total jika ingin mempertahankan kelanjutan, 
+    // tapi cukup kosongkan chart view agar data baru dimuat dengan mulus
     if (seriesRef.current) {
       seriesRef.current.setData([]);
     }
@@ -102,9 +103,6 @@ export default function StockChart() {
       
       const target = PERIOD_DATA[range];
       const savedPrice = localStorage.getItem(`live_price_${range}`);
-      
-      // Jika sudah ada harga live tersimpan di localStorage untuk periode ini, gunakan itu.
-      // Jika belum ada sama sekali, turunkan ke harga bawaan `target.price`.
       const activePrice = savedPrice ? Number(savedPrice) : target.price;
 
       setLivePrice(activePrice);
@@ -187,10 +185,6 @@ export default function StockChart() {
 
     const loadData = async () => {
       try {
-        if (seriesRef.current) {
-          seriesRef.current.setData([]);
-        }
-
         const apiParam = timeRange === '1m_time' ? '1m' : timeRange;
         const res = await fetch(`/api/stock?range=${apiParam}`);
         const json = await res.json();
@@ -203,7 +197,7 @@ export default function StockChart() {
           
           const firstClose = rawHistory[0]?.close || targetMeta.base;
           
-          // Pastikan mengambil livePrice terbaru yang sedang dipegang state/ref saat ini
+          // Ambil harga aktif saat ini agar skala candle sesuai dengan harga live terakhir
           const currentActivePrice = latestPriceRef.current || livePrice || targetMeta.price;
           const scaleFactor = currentActivePrice / firstClose;
 
@@ -224,14 +218,14 @@ export default function StockChart() {
             };
           });
 
-          // Sinkronkan candle penutup terakhir dengan harga aktif saat ini agar mulus
+          // PENTING: Paksa candle terakhir menggunakan harga live aktif (agar nyambung dan tidak reset)
           if (formattedHistory.length > 0) {
             const lastIdx = formattedHistory.length - 1;
             formattedHistory[lastIdx].close = currentActivePrice;
-            if (formattedHistory[lastIdx].close > formattedHistory[lastIdx].high) {
+            if (currentActivePrice > formattedHistory[lastIdx].high) {
               formattedHistory[lastIdx].high = currentActivePrice;
             }
-            if (formattedHistory[lastIdx].close < formattedHistory[lastIdx].low) {
+            if (currentActivePrice < formattedHistory[lastIdx].low) {
               formattedHistory[lastIdx].low = currentActivePrice;
             }
           }
