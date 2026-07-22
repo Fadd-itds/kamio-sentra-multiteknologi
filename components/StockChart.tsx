@@ -35,10 +35,10 @@ export default function StockChart() {
       const saved = localStorage.getItem('selected_time_range');
       if (saved && saved in PERIOD_DATA) return saved as keyof typeof PERIOD_DATA;
     }
-    return '1s';
+    return '1D';
   });
 
-  const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
+  const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1D'];
 
   const [livePrice, setLivePrice] = useState<number>(() => {
     if (typeof window !== 'undefined') {
@@ -157,7 +157,6 @@ export default function StockChart() {
     // Crosshair Move Handler untuk Tooltip Legend
     chart.subscribeCrosshairMove((param: any) => {
       if (!param.time || !param.point) {
-        // Jika kursor keluar, kembalikan ke data terakhir
         if (historyRef.current.length > 0) {
           const last = historyRef.current[historyRef.current.length - 1];
           const lastMa = maSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'sma') : undefined;
@@ -179,7 +178,6 @@ export default function StockChart() {
 
       const found = historyRef.current.find((item) => item.time === param.time);
       if (found) {
-        // Ambil data series dari param.seriesData jika tersedia
         const barData = param.seriesData.get(seriesRef.current);
         const maData = maSeriesRef.current ? param.seriesData.get(maSeriesRef.current) : null;
         const emaData = emaSeriesRef.current ? param.seriesData.get(emaSeriesRef.current) : null;
@@ -264,7 +262,6 @@ export default function StockChart() {
     }
     seriesRef.current = series;
 
-    // MA20 Series (Biru)
     const maSeries = chartRef.current.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
@@ -274,7 +271,6 @@ export default function StockChart() {
     });
     maSeriesRef.current = maSeries;
 
-    // EMA20 Series (Oranye)
     const emaSeries = chartRef.current.addSeries(LineSeries, {
       color: '#f97316',
       lineWidth: 2,
@@ -284,21 +280,16 @@ export default function StockChart() {
     });
     emaSeriesRef.current = emaSeries;
 
-    chartRef.current.timeScale().applyOptions({
-      secondsVisible: timeRange === '1s' || timeRange === '1m_time',
-    });
-
     const loadData = async () => {
       try {
-        const apiParam = timeRange === '1m_time' ? '1m' : timeRange;
-        const res = await fetch(`/api/stock?range=${apiParam}`);
+        const res = await fetch(`/api/stock?range=${timeRange}`);
         const json = await res.json();
 
         if (isDisposed) return;
 
         if (json.history && json.history.length > 0) {
           const rawHistory = json.history;
-          const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
+          const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1D'];
           
           const firstClose = rawHistory[0]?.close || targetMeta.base;
           const currentActivePrice = latestPriceRef.current || livePrice || targetMeta.price;
@@ -350,7 +341,6 @@ export default function StockChart() {
             color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
           }));
 
-          // Hitung Moving Average 20 (SMA)
           const maData = historyRef.current.map((row: any, idx: number, arr: any[]) => {
             if (idx < 19) return null;
             const slice = arr.slice(idx - 19, idx + 1);
@@ -358,7 +348,6 @@ export default function StockChart() {
             return { time: row.time, value: Number((sum / 20).toFixed(2)) };
           }).filter((item: any) => item !== null);
 
-          // Hitung Exponential Moving Average 20 (EMA)
           let k = 2 / (20 + 1);
           let prevEma = historyRef.current[0]?.close || 0;
           const emaData = historyRef.current.map((row: any, idx: number) => {
@@ -415,7 +404,6 @@ export default function StockChart() {
     };
   }, [isClientReady, chartType, timeRange]);
 
-  // Handle Visibility Toggle untuk MA & EMA
   useEffect(() => {
     if (maSeriesRef.current) {
       maSeriesRef.current.applyOptions({ visible: showMa });
@@ -431,11 +419,9 @@ export default function StockChart() {
   // 3. INTERVAL UPDATE REAL-TIME LIVE PRICE & INDICATOR RECALCULATION
   useEffect(() => {
     let updateIntervalMs = 1000;
-    if (timeRange === '1m_time') updateIntervalMs = 5000;
-    if (timeRange === '1h') updateIntervalMs = 15000;
-    if (timeRange === '1d') updateIntervalMs = 30000;
-    if (['1m', '3m', '6m', 'ytd', '1y', '5y'].includes(timeRange)) {
-      updateIntervalMs = 60000;
+    if (timeRange === '1D') updateIntervalMs = 5000;
+    if (['1W', '1M', '3M', '1Y', '3Y', '5Y', '10Y', 'ALL'].includes(timeRange)) {
+      updateIntervalMs = 15000;
     }
 
     const liveInterval = setInterval(() => {
@@ -454,27 +440,11 @@ export default function StockChart() {
         setPriceFlash(flashType);
         setTimeout(() => setPriceFlash(null), 300);
 
-        let activeRow: any;
-        const currentTimestamp = Math.floor(Date.now() / 1000);
-
-        if (timeRange === '1s') {
-          const nextTimestamp = Math.max(currentTimestamp, lastRow.time + 1);
-          activeRow = {
-            time: nextTimestamp,
-            open: lastRow.close,
-            high: Math.max(lastRow.close, newClose),
-            low: Math.min(lastRow.close, newClose),
-            close: newClose,
-            volume: Math.floor(Math.random() * 5000) + 500,
-          };
-          historyRef.current.push(activeRow);
-        } else {
-          activeRow = { ...lastRow };
-          activeRow.close = newClose;
-          if (activeRow.close > activeRow.high) activeRow.high = activeRow.close;
-          if (activeRow.close < activeRow.low) activeRow.low = activeRow.close;
-          historyRef.current[lastIndex] = activeRow;
-        }
+        let activeRow = { ...lastRow };
+        activeRow.close = newClose;
+        if (activeRow.close > activeRow.high) activeRow.high = activeRow.close;
+        if (activeRow.close < activeRow.low) activeRow.low = activeRow.close;
+        historyRef.current[lastIndex] = activeRow;
 
         if (chartRef.current && seriesRef.current) {
           if (chartType === 'line') {
@@ -489,7 +459,6 @@ export default function StockChart() {
             });
           }
 
-          // Update real-time nilai MA20 & EMA20
           let currentMaVal: number | undefined;
           let currentEmaVal: number | undefined;
 
@@ -512,7 +481,7 @@ export default function StockChart() {
             emaSeriesRef.current.update({ time: activeRow.time, value: currentEmaVal });
           }
 
-          const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
+          const currentMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1D'];
           const diff = activeRow.close - currentMeta.base;
           const diffPercent = (diff / currentMeta.base) * 100;
 
@@ -724,31 +693,44 @@ export default function StockChart() {
           </div>
         </div>
 
-        {/* PERIOD SELECTION */}
+        {/* PERIOD SELECTION (Stockbit Style) */}
         <div className="flex items-center gap-3 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
           <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide whitespace-nowrap">Period:</span>
           <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
-            {(['1s', '1m_time', '1h', '1d', '1m', '3m', '6m', 'ytd', '1y', '5y'] as const).map((range) => {
-              let label = range;
-              if (range === '1s') label = '1s';
-              if (range === '1m_time') label = '1m';
-              if (range === '1h') label = '1h';
-              if (range === '1d') label = '1d';
-
-              return (
-                <button
-                  key={range}
-                  onClick={() => handlePeriodChange(range)}
-                  className={`px-2.5 py-1.5 text-xs font-semibold uppercase transition-colors border-r border-gray-200 last:border-r-0 whitespace-nowrap ${
-                    timeRange === range ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
+            {(['1D', '1W', '1M', '3M', '1Y', '3Y', '5Y', '10Y', 'ALL'] as const).map((range) => (
+              <button
+                key={range}
+                onClick={() => handlePeriodChange(range)}
+                className={`px-3 py-1.5 text-xs font-semibold uppercase transition-colors border-r border-gray-200 last:border-r-0 whitespace-nowrap ${
+                  timeRange === range ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {range}
+              </button>
+            ))}
           </div>
         </div>
+      </div>
+
+      {/* TOOLTIP LEGEND BAR */}
+      <div className="bg-gray-900 text-gray-200 px-4 py-2.5 rounded-xl text-xs flex flex-wrap items-center justify-between gap-y-2 font-mono">
+        <div className="flex items-center gap-4 flex-wrap">
+          <span className="text-gray-400">{legendData.time || '-'}</span>
+          <span>O: <strong className="text-white">{legendData.open ? formatRupiah(legendData.open) : '-'}</strong></span>
+          <span>H: <strong className="text-white">{legendData.high ? formatRupiah(legendData.high) : '-'}</strong></span>
+          <span>L: <strong className="text-white">{legendData.low ? formatRupiah(legendData.low) : '-'}</strong></span>
+          <span>C: <strong className="text-white">{legendData.close ? formatRupiah(legendData.close) : '-'}</strong></span>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <span className="text-blue-400">MA20: <strong>{legendData.ma ? formatRupiah(legendData.ma) : '-'}</strong></span>
+          <span className="text-orange-400">EMA20: <strong>{legendData.ema ? formatRupiah(legendData.ema) : '-'}</strong></span>
+          <span className="text-gray-400">Vol: <strong>{legendData.volume?.toLocaleString() ?? '-'}</strong></span>
+        </div>
+      </div>
+
+      {/* CHART CONTAINER */}
+      <div className="relative w-full rounded-xl overflow-hidden border border-gray-200 bg-white">
+        <div ref={chartContainerRef} className="w-full" />
       </div>
 
       {/* METRICS CARDS */}
@@ -762,59 +744,20 @@ export default function StockChart() {
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
           <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Shares</span>
           <span className="text-lg font-bold text-gray-900">
-            {formatShares(stockInfo?.shares)}
+            {formatShares(stockInfo?.shares ?? 1800000000)}
           </span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Period High</span>
-          <span className={`text-lg font-bold text-green-600 ${isClientReady ? 'opacity-100' : 'opacity-0'}`}>
-            {dayHigh.toLocaleString('id-ID')}
+          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Day High</span>
+          <span className="text-lg font-bold text-green-600">
+            {formatRupiah(dayHigh)}
           </span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Period Low</span>
-          <span className={`text-lg font-bold text-red-600 ${isClientReady ? 'opacity-100' : 'opacity-0'}`}>
-            {dayLow.toLocaleString('id-ID')}
+          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Day Low</span>
+          <span className="text-lg font-bold text-red-600">
+            {formatRupiah(dayLow)}
           </span>
-        </div>
-      </div>
-
-      {/* LIGHTWEIGHT CHART CONTAINER & TOOLTIP LEGEND OVERLAY */}
-      <div className="relative w-full">
-        {/* Tooltip Legend di atas Chart */}
-        <div className="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur-xs border border-gray-200 rounded-lg p-2.5 text-[11px] shadow-sm flex flex-wrap gap-x-4 gap-y-1 font-mono pointer-events-none text-gray-700">
-          <div><span className="text-gray-400">Time:</span> <strong className="text-gray-900">{legendData.time || '-'}</strong></div>
-          {chartType !== 'line' ? (
-            <>
-              <div><span className="text-gray-400">O:</span> <strong className="text-gray-900">{legendData.open ?? '-'}</strong></div>
-              <div><span className="text-gray-400">H:</span> <strong className="text-gray-900">{legendData.high ?? '-'}</strong></div>
-              <div><span className="text-gray-400">L:</span> <strong className="text-gray-900">{legendData.low ?? '-'}</strong></div>
-              <div><span className="text-gray-400">C:</span> <strong className="text-gray-900">{legendData.close ?? '-'}</strong></div>
-            </>
-          ) : (
-            <div><span className="text-gray-400">Price:</span> <strong className="text-gray-900">{legendData.value ?? '-'}</strong></div>
-          )}
-          <div><span className="text-gray-400">Vol:</span> <strong className="text-gray-900">{legendData.volume ?? '-'}</strong></div>
-          {showMa && <div><span className="text-blue-500 font-bold">MA20:</span> <strong className="text-blue-600">{legendData.ma ?? '-'}</strong></div>}
-          {showEma && <div><span className="text-orange-500 font-bold">EMA20:</span> <strong className="text-orange-600">{legendData.ema ?? '-'}</strong></div>}
-        </div>
-
-        <div ref={chartContainerRef} className="w-full h-[450px] border border-gray-200 rounded-xl overflow-hidden shadow-2xs" />
-      </div>
-
-      {/* FOOTER PREMIUM & MARKET FEED INDICATOR */}
-      <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400 gap-2">
-        <div>
-          <span className="font-semibold text-gray-600">Source:</span> Indonesia Stock Exchange (IDX) • Market data synchronized automatically.
-        </div>
-        <div className="flex items-center gap-1.5 font-medium">
-          <span className={`w-2 h-2 rounded-full ${
-            feedStatus === 'Connected' ? 'bg-emerald-500 animate-pulse' : 
-            feedStatus === 'Reconnecting...' ? 'bg-amber-500 animate-ping' : 'bg-red-500'
-          }`} />
-          <span className={
-            feedStatus === 'Connected' ? 'text-emerald-600' : 'text-amber-600'
-          }>{feedStatus}</span>
         </div>
       </div>
 
