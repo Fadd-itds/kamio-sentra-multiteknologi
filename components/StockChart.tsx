@@ -3,55 +3,53 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Data dasar per period
-const PERIOD_CONFIG: Record<string, { price: number; base: number; open: number; high: number; low: number; count: number }> = {
-  '1S':  { price: 950, base: 950, open: 950, high: 965, low: 935, count: 30 },   
-  '1D':  { price: 960, base: 950, open: 950, high: 975, low: 940, count: 40 },   
-  '1W':  { price: 945, base: 920, open: 925, high: 965, low: 910, count: 50 },   
-  '1M':  { price: 980, base: 875, open: 875, high: 990, low: 870, count: 60 },   
-  '3M':  { price: 1020, base: 820, open: 825, high: 1040, low: 810, count: 60 }, 
-  '1Y':  { price: 1250, base: 740, open: 745, high: 1280, low: 720, count: 60 }, 
-  '3Y':  { price: 1700, base: 650, open: 660, high: 1750, low: 630, count: 60 }, 
-  '5Y':  { price: 2100, base: 480, open: 490, high: 2150, low: 460, count: 60 }, 
-  '10Y': { price: 2800, base: 300, open: 310, high: 2900, low: 280, count: 60 }, 
-  'ALL': { price: 3500, base: 200, open: 210, high: 3600, low: 180, count: 60 }, 
-};
+// Generator data statis mutlak per periode agar bentuk grafik tidak pernah berubah saat diklik ulang
+const generateFixedPeriodData = (rangeKey: string) => {
+  const configs: Record<string, { base: number; target: number; count: number; step: number }> = {
+    '1S':  { base: 900, target: 950, count: 30,  step: 1.8 },
+    '1D':  { base: 910, target: 960, count: 40,  step: 1.5 },
+    '1W':  { base: 880, target: 945, count: 50,  step: 1.4 },
+    '1M':  { base: 850, target: 980, count: 60,  step: 2.2 },
+    '3M':  { base: 800, target: 1020, count: 60, step: 3.8 },
+    '1Y':  { base: 720, target: 1250, count: 60, step: 8.8 },
+    '3Y':  { base: 600, target: 1700, count: 60, step: 18.3 },
+    '5Y':  { base: 450, target: 2100, count: 60, step: 27.5 },
+    '10Y': { base: 280, target: 2800, count: 60, step: 42.0 },
+    'ALL': { base: 150, target: 3500, count: 60, step: 55.8 },
+  };
 
-// Fungsi untuk menghasilkan data dummy yang konsisten dan statis (tidak berubah saat diklik ulang)
-const generateStableData = (rangeKey: string) => {
-  const config = PERIOD_CONFIG[rangeKey] || PERIOD_CONFIG['1W'];
-  const count = config.count;
-  
-  // Gunakan timestamp statis agar titik waktunya konstan dan tidak bergeser
-  const staticBaseTime = 1782810000; 
-  
-  let currentP = config.base;
+  const cfg = configs[rangeKey] || configs['1W'];
+  const staticBaseTime = 1782810000; // Timestamp paten (Juli 2026)
   const rawData = [];
+  
+  let currentVal = cfg.base;
 
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < cfg.count; i++) {
     const time = staticBaseTime + (i * 3600 * 24);
     
-    // Pola naik-turun yang konstan berdasarkan index `i`
-    const wave = Math.sin(i * 0.5) * 8 + Math.cos(i * 0.2) * 5;
-    const open = currentP;
-    const close = Number((config.base + (i * ((config.price - config.base) / count)) + wave).toFixed(2));
-    const high = Number((Math.max(open, close) + Math.abs(Math.sin(i) * 6) + 2).toFixed(2));
-    const low = Number((Math.min(open, close) - Math.abs(Math.cos(i) * 6) - 2).toFixed(2));
+    // Pola gelombang matematis murni tanpa Math.random() agar hasilnya identik setiap dipanggil
+    const wave = Math.sin(i * 0.4) * 12 + Math.cos(i * 0.25) * 8;
+    const open = Number(currentVal.toFixed(2));
+    const trendAdd = cfg.step + (wave * 0.3);
+    const close = Number((open + trendAdd).toFixed(2));
     
-    currentP = close;
+    const high = Number((Math.max(open, close) + Math.abs(Math.sin(i) * 5) + 3).toFixed(2));
+    const low = Number((Math.min(open, close) - Math.abs(Math.cos(i) * 5) - 3).toFixed(2));
+    
+    currentVal = close;
     rawData.push({
       time,
       open,
       high: Math.max(high, open, close),
       low: Math.min(low, open, close),
       close,
-      volume: Math.floor(Math.abs(Math.sin(i) * 10000) + 2000),
+      volume: Math.floor(Math.abs(Math.sin(i) * 12000) + 3000),
     });
   }
 
-  // Pastikan titik terakhir pas dengan harga target di config
+  // Set titik penutupan terakhir agar pas dengan target harga periode tersebut
   if (rawData.length > 0) {
-    rawData[rawData.length - 1].close = config.price;
+    rawData[rawData.length - 1].close = cfg.target;
   }
 
   return rawData;
@@ -70,22 +68,23 @@ export default function StockChart() {
   
   const [stockInfo] = useState<any>({ marketCap: 1710000000000, shares: 1800000000 });
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
-  
-  const [timeRange, setTimeRange] = useState<keyof typeof PERIOD_CONFIG>('1W');
+  const [timeRange, setTimeRange] = useState<string>('1W');
 
-  const targetData = PERIOD_CONFIG[timeRange] || PERIOD_CONFIG['1W'];
+  // Ambil data referensi awal berdasarkan timeRange aktif
+  const initialDummy = generateFixedPeriodData('1W');
+  const lastInitial = initialDummy[initialDummy.length - 1];
+  const firstInitial = initialDummy[0];
 
-  const [livePrice, setLivePrice] = useState<number>(targetData.price);
-  const [basePrice, setBasePrice] = useState<number>(targetData.base);
-  const [periodOpen, setPeriodOpen] = useState<number>(targetData.open);
+  const [livePrice, setLivePrice] = useState<number>(lastInitial.close);
+  const [basePrice, setBasePrice] = useState<number>(firstInitial.close);
+  const [periodOpen, setPeriodOpen] = useState<number>(firstInitial.open);
   
-  const [priceChange, setPriceChange] = useState<number>(targetData.price - targetData.base);
-  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((targetData.price - targetData.base) / targetData.base) * 100).toFixed(2)));
+  const [priceChange, setPriceChange] = useState<number>(lastInitial.close - firstInitial.close);
+  const [priceChangePercent, setPriceChangePercent] = useState<number>(Number((((lastInitial.close - firstInitial.close) / firstInitial.close) * 100).toFixed(2)));
   
   const [priceFlash] = useState<'up' | 'down' | null>(null);
-  
-  const [dayHigh, setDayHigh] = useState<number>(targetData.high);
-  const [dayLow, setDayLow] = useState<number>(targetData.low);
+  const [dayHigh, setDayHigh] = useState<number>(Math.max(...initialDummy.map(d => d.high)));
+  const [dayLow, setDayLow] = useState<number>(Math.min(...initialDummy.map(d => d.low)));
 
   const [chartType, setChartType] = useState<'line' | 'candlestick' | 'ohlc'>('candlestick');
   const [feedStatus, setFeedStatus] = useState<'Connected' | 'Reconnecting...' | 'Disconnected'>('Connected');
@@ -108,11 +107,7 @@ export default function StockChart() {
     setIsClientReady(true);
   }, []);
 
-  const handlePeriodChange = (range: keyof typeof PERIOD_CONFIG) => {
-    setTimeRange(range);
-  };
-
-  // Inisialisasi Grafik Utama
+  // Inisialisasi Grafik TradingView sekali saja saat mount
   useEffect(() => {
     if (!isClientReady || !chartContainerRef.current) return;
 
@@ -229,11 +224,9 @@ export default function StockChart() {
     }
   };
 
-  // Load Data sesuai TimeRange secara Stabil
+  // Render dan Update Data setiap timeRange atau chartType berubah
   useEffect(() => {
     if (!isClientReady || !chartRef.current) return;
-
-    let isDisposed = false;
 
     if (seriesRef.current) {
       chartRef.current.removeSeries(seriesRef.current);
@@ -285,111 +278,86 @@ export default function StockChart() {
     });
     emaSeriesRef.current = emaSeries;
 
-    const loadData = async () => {
-      try {
-        const sortedRaw = generateStableData(timeRange);
+    // Ambil data fix sesuai periode
+    const rawData = generateFixedPeriodData(timeRange);
+    if (rawData.length === 0) return;
 
-        if (isDisposed || sortedRaw.length === 0) return;
+    const firstRow = rawData[0];
+    const lastRow = rawData[rawData.length - 1];
 
-        const firstRow = sortedRaw[0];
-        const lastRow = sortedRaw[sortedRaw.length - 1];
+    const calcBase = firstRow.close;
+    const calcOpen = firstRow.open;
+    const calcHigh = Math.max(...rawData.map(r => r.high));
+    const calcLow = Math.min(...rawData.map(r => r.low));
+    const finalClose = lastRow.close;
 
-        const calculatedBase = firstRow.close;
-        const calculatedOpen = firstRow.open;
-        const calculatedHigh = Math.max(...sortedRaw.map((r: any) => r.high));
-        const calculatedLow = Math.min(...sortedRaw.map((r: any) => r.low));
-        const finalClosePrice = lastRow.close;
+    setBasePrice(calcBase);
+    setPeriodOpen(calcOpen);
+    setLivePrice(finalClose);
 
-        setBasePrice(calculatedBase);
-        setPeriodOpen(calculatedOpen);
-        setLivePrice(finalClosePrice);
+    const diff = finalClose - calcBase;
+    setPriceChange(Math.round(diff));
+    setPriceChangePercent(Number(((diff / calcBase) * 100).toFixed(2)));
 
-        const diff = finalClosePrice - calculatedBase;
-        setPriceChange(Math.round(diff));
-        setPriceChangePercent(Number(((diff / calculatedBase) * 100).toFixed(2)));
+    setDayHigh(calcHigh);
+    setDayLow(calcLow);
 
-        setDayHigh(calculatedHigh);
-        setDayLow(calculatedLow);
+    historyRef.current = rawData;
 
-        const formattedHistory = sortedRaw.map((row: any) => ({
-          time: row.time,
-          open: Number(row.open.toFixed(2)),
-          high: Number(row.high.toFixed(2)),
-          low: Number(row.low.toFixed(2)),
-          close: Number(row.close.toFixed(2)),
-          volume: row.volume || 1000,
-        }));
+    const mainData = rawData.map(row => {
+      if (chartType === 'line') return { time: row.time, value: row.close };
+      return { time: row.time, open: row.open, high: row.high, low: row.low, close: row.close };
+    });
 
-        historyRef.current = formattedHistory;
+    const volumeData = rawData.map(row => ({
+      time: row.time,
+      value: row.volume,
+      color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
+    }));
 
-        const mainData = historyRef.current.map((row: any) => {
-          if (chartType === 'line') return { time: row.time, value: row.close };
-          return { time: row.time, open: row.open, high: row.high, low: row.low, close: row.close };
-        });
+    const maData = rawData.map((row, idx, arr) => {
+      if (idx < 19) return null;
+      const slice = arr.slice(idx - 19, idx + 1);
+      const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+      return { time: row.time, value: Number((sum / 20).toFixed(2)) };
+    }).filter(item => item !== null);
 
-        const volumeData = historyRef.current.map((row: any) => ({
-          time: row.time,
-          value: row.volume,
-          color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
-        }));
-
-        const maData = historyRef.current.map((row: any, idx: number, arr: any[]) => {
-          if (idx < 19) return null;
-          const slice = arr.slice(idx - 19, idx + 1);
-          const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
-          return { time: row.time, value: Number((sum / 20).toFixed(2)) };
-        }).filter((item: any) => item !== null);
-
-        let k = 2 / (20 + 1);
-        let prevEma = historyRef.current[0]?.close || 0;
-        const emaData = historyRef.current.map((row: any, idx: number) => {
-          if (idx === 0) {
-            prevEma = row.close;
-            return { time: row.time, value: row.close };
-          }
-          prevEma = (row.close * k) + (prevEma * (1 - k));
-          return { time: row.time, value: Number(prevEma.toFixed(2)) };
-        });
-
-        if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current && maSeriesRef.current && emaSeriesRef.current) {
-          seriesRef.current.setData(mainData);
-          volumeSeriesRef.current.setData(volumeData);
-          maSeriesRef.current.setData(maData);
-          emaSeriesRef.current.setData(emaData);
-          chartRef.current.timeScale().fitContent();
-
-          const formattedDate = typeof lastRow.time === 'number' 
-            ? new Date(lastRow.time * 1000).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':').replace(',', '') 
-            : lastRow.time;
-
-          setLegendData({
-            time: formattedDate,
-            open: lastRow.open,
-            high: lastRow.high,
-            low: lastRow.low,
-            close: lastRow.close,
-            value: lastRow.close,
-            volume: lastRow.volume,
-            ma: maData[maData.length - 1]?.value,
-            ema: emaData[emaData.length - 1]?.value,
-          });
-        }
-        if (!isDisposed) {
-          setFeedStatus('Connected');
-        }
-      } catch (err) {
-        if (!isDisposed) {
-          console.error("Gagal memuat data:", err);
-          setFeedStatus('Reconnecting...');
-        }
+    let k = 2 / (20 + 1);
+    let prevEma = rawData[0]?.close || 0;
+    const emaData = rawData.map((row, idx) => {
+      if (idx === 0) {
+        prevEma = row.close;
+        return { time: row.time, value: row.close };
       }
-    };
+      prevEma = (row.close * k) + (prevEma * (1 - k));
+      return { time: row.time, value: Number(prevEma.toFixed(2)) };
+    });
 
-    loadData();
+    if (chartRef.current && seriesRef.current && volumeSeriesRef.current && maSeriesRef.current && emaSeriesRef.current) {
+      seriesRef.current.setData(mainData);
+      volumeSeriesRef.current.setData(volumeData);
+      maSeriesRef.current.setData(maData);
+      emaSeriesRef.current.setData(emaData);
+      chartRef.current.timeScale().fitContent();
 
-    return () => {
-      isDisposed = true;
-    };
+      const formattedDate = typeof lastRow.time === 'number' 
+        ? new Date(lastRow.time * 1000).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':').replace(',', '') 
+        : lastRow.time;
+
+      setLegendData({
+        time: formattedDate,
+        open: lastRow.open,
+        high: lastRow.high,
+        low: lastRow.low,
+        close: lastRow.close,
+        value: lastRow.close,
+        volume: lastRow.volume,
+        ma: maData[maData.length - 1]?.value,
+        ema: emaData[emaData.length - 1]?.value,
+      });
+    }
+
+    setFeedStatus('Connected');
   }, [isClientReady, chartType, timeRange]);
 
   useEffect(() => {
@@ -582,7 +550,7 @@ export default function StockChart() {
             {(['1S', '1D', '1W', '1M', '3M', '1Y', '3Y', '5Y', '10Y', 'ALL'] as const).map((range) => (
               <button
                 key={range}
-                onClick={() => handlePeriodChange(range)}
+                onClick={() => setTimeRange(range)}
                 className={`px-3 py-1.5 text-xs font-semibold uppercase transition-colors border-r border-gray-200 last:border-r-0 whitespace-nowrap ${
                   timeRange === range ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                 }`}
