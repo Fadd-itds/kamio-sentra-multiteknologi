@@ -16,14 +16,13 @@ const PERIOD_DATA: Record<string, { price: number; base: number; open: number; h
   '5y':       { price: 2100, base: 200, open: 210, high: 2150, low: 180 }, 
 };
 
-// Fungsi helper untuk menentukan jarak detik antar candle berdasarkan periode
 const getIntervalStep = (range: string) => {
-  if (range === '1s') return 1;                  // 1 detik
-  if (range === '1m_time') return 60;            // 1 menit
-  if (range === '1h') return 3600;               // 1 jam
-  if (range === '1d') return 86400;              // 1 hari
-  if (['1m', '3m', '6m', 'ytd'].includes(range)) return 86400 * 30; // ~1 bulan
-  return 86400 * 365;                            // ~1 tahun untuk 1y / 5y
+  if (range === '1s') return 1;                  
+  if (range === '1m_time') return 60;            
+  if (range === '1h') return 3600;               
+  if (range === '1d') return 86400;              
+  if (['1m', '3m', '6m', 'ytd'].includes(range)) return 86400 * 30; 
+  return 86400 * 365;                            
 };
 
 export default function StockChart() {
@@ -90,7 +89,6 @@ export default function StockChart() {
   const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
     setTimeRange(range);
     
-    // Kosongkan riwayat secara instan agar tidak konflik data antar periode
     historyRef.current = [];
     if (seriesRef.current) {
       seriesRef.current.setData([]);
@@ -104,14 +102,19 @@ export default function StockChart() {
       
       const target = PERIOD_DATA[range];
       const savedPrice = localStorage.getItem(`live_price_${range}`);
+      
+      // Jika sudah ada harga live tersimpan di localStorage untuk periode ini, gunakan itu.
+      // Jika belum ada sama sekali, turunkan ke harga bawaan `target.price`.
       const activePrice = savedPrice ? Number(savedPrice) : target.price;
 
       setLivePrice(activePrice);
       setBasePrice(target.base);
       setPeriodOpen(target.open);
+      
       const diff = activePrice - target.base;
       setPriceChange(Math.round(diff));
       setPriceChangePercent(Number(((diff / target.base) * 100).toFixed(2)));
+      
       setDayHigh(Math.max(target.high, activePrice));
       setDayLow(Math.min(target.low, activePrice));
       latestPriceRef.current = activePrice;
@@ -199,7 +202,10 @@ export default function StockChart() {
           const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
           
           const firstClose = rawHistory[0]?.close || targetMeta.base;
-          const scaleFactor = targetMeta.price / firstClose;
+          
+          // Pastikan mengambil livePrice terbaru yang sedang dipegang state/ref saat ini
+          const currentActivePrice = latestPriceRef.current || livePrice || targetMeta.price;
+          const scaleFactor = currentActivePrice / firstClose;
 
           const nowSeconds = Math.floor(Date.now() / 1000);
           const intervalStep = getIntervalStep(timeRange);
@@ -217,6 +223,18 @@ export default function StockChart() {
               volume: row.volume || 1000,
             };
           });
+
+          // Sinkronkan candle penutup terakhir dengan harga aktif saat ini agar mulus
+          if (formattedHistory.length > 0) {
+            const lastIdx = formattedHistory.length - 1;
+            formattedHistory[lastIdx].close = currentActivePrice;
+            if (formattedHistory[lastIdx].close > formattedHistory[lastIdx].high) {
+              formattedHistory[lastIdx].high = currentActivePrice;
+            }
+            if (formattedHistory[lastIdx].close < formattedHistory[lastIdx].low) {
+              formattedHistory[lastIdx].low = currentActivePrice;
+            }
+          }
 
           historyRef.current = formattedHistory;
 
@@ -238,8 +256,8 @@ export default function StockChart() {
 
             const lastRowData = historyRef.current[historyRef.current.length - 1];
             if (lastRowData) {
-              setDayHigh(Math.max(lastRowData.high, targetMeta.high));
-              setDayLow(Math.min(lastRowData.low, targetMeta.low));
+              setDayHigh(Math.max(lastRowData.high, targetMeta.high, currentActivePrice));
+              setDayLow(Math.min(lastRowData.low, targetMeta.low, currentActivePrice));
             }
           }
         }
