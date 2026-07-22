@@ -291,17 +291,13 @@ export default function StockChart() {
           const rawHistory = json.history;
           const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1D'];
           
-          const firstClose = rawHistory[0]?.close || targetMeta.base;
-          const currentActivePrice = latestPriceRef.current || livePrice || targetMeta.price;
-          
-          const scaleFactor = currentActivePrice / firstClose;
-
+          // Menggunakan data mentah asli tanpa scaleFactor agar candle bervariasi secara natural
           const formattedHistory = rawHistory.map((row: any) => ({
             time: row.time,
-            open: Number((row.open * scaleFactor).toFixed(2)),
-            high: Number((row.high * scaleFactor).toFixed(2)),
-            low: Number((row.low * scaleFactor).toFixed(2)),
-            close: Number((row.close * scaleFactor).toFixed(2)),
+            open: Number(row.open.toFixed(2)),
+            high: Number(row.high.toFixed(2)),
+            low: Number(row.low.toFixed(2)),
+            close: Number(row.close.toFixed(2)),
             volume: row.volume || 1000,
           })).sort((a: any, b: any) => a.time - b.time);
 
@@ -368,6 +364,7 @@ export default function StockChart() {
 
             const lastRowData = historyRef.current[historyRef.current.length - 1];
             if (lastRowData) {
+              const currentActivePrice = lastRowData.close;
               setDayHigh(Math.max(lastRowData.high, targetMeta.high, currentActivePrice));
               setDayLow(Math.min(lastRowData.low, targetMeta.low, currentActivePrice));
               
@@ -737,27 +734,19 @@ export default function StockChart() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
           <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Market Cap</span>
-          <span className="text-lg font-bold text-gray-900">
-            {formatMarketCap(livePrice * (stockInfo?.shares ?? 1800000000))}
-          </span>
+          <span className="text-lg font-bold text-gray-900">{formatMarketCap(stockInfo?.marketCap || (livePrice * 1800000000))}</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Shares</span>
-          <span className="text-lg font-bold text-gray-900">
-            {formatShares(stockInfo?.shares ?? 1800000000)}
-          </span>
+          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Shares Outstanding</span>
+          <span className="text-lg font-bold text-gray-900">{formatShares(stockInfo?.shares || 1800000000)}</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
           <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Day High</span>
-          <span className="text-lg font-bold text-green-600">
-            {formatRupiah(dayHigh)}
-          </span>
+          <span className="text-lg font-bold text-green-600">{formatRupiah(dayHigh)}</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
           <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Day Low</span>
-          <span className="text-lg font-bold text-red-600">
-            {formatRupiah(dayLow)}
-          </span>
+          <span className="text-lg font-bold text-red-600">{formatRupiah(dayLow)}</span>
         </div>
       </div>
 
