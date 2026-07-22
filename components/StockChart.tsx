@@ -16,6 +16,16 @@ const PERIOD_DATA: Record<string, { price: number; base: number; open: number; h
   '5y':       { price: 2100, base: 200, open: 210, high: 2150, low: 180 }, 
 };
 
+// Fungsi helper untuk menentukan jarak detik antar candle berdasarkan periode
+const getIntervalStep = (range: string) => {
+  if (range === '1s') return 1;                  // 1 detik
+  if (range === '1m_time') return 60;            // 1 menit
+  if (range === '1h') return 3600;               // 1 jam
+  if (range === '1d') return 86400;              // 1 hari
+  if (['1m', '3m', '6m', 'ytd'].includes(range)) return 86400 * 30; // ~1 bulan
+  return 86400 * 365;                            // ~1 tahun untuk 1y / 5y
+};
+
 export default function StockChart() {
   const marketInfo = useMarketTime();
 
@@ -137,7 +147,7 @@ export default function StockChart() {
       timeScale: { 
         borderColor: '#d1d5db', 
         timeVisible: true,
-        secondsVisible: true, 
+        secondsVisible: timeRange === '1s' || timeRange === '1m_time', 
       },
     });
     chartRef.current = chart;
@@ -192,7 +202,7 @@ export default function StockChart() {
           const scaleFactor = targetMeta.price / firstClose;
 
           const nowSeconds = Math.floor(Date.now() / 1000);
-          const intervalStep = timeRange === '1s' ? 1 : timeRange === '1m_time' ? 60 : 3600;
+          const intervalStep = getIntervalStep(timeRange);
 
           const formattedHistory = rawHistory.map((row: any, idx: number, arr: any[]) => {
             const timeOffset = (arr.length - 1 - idx) * intervalStep;
