@@ -5,12 +5,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const range = searchParams.get('range') || '1y';
 
-    const symbol = 'KMIO.JK'; // Disamakan ke KMIO.JK
+    const symbol = 'KMIO.JK'; 
     const now = Math.floor(Date.now() / 1000);
 
-    // GENERATOR INTRADAY LIVE (1s, 1m, 1h)
+    // GENERATOR INTRADAY LIVE (1s, 1m, 1h) AGAR SELALU UPDATE KE WAKTU SEKARANG
     if (range === '1s' || range === '1m' || range === '1h' || range === '1m_time') {
-      let basePrice = 966.30;
+      let basePrice = 960; // Dikembalikan ke 960
       const count = range === '1s' ? 60 : 40;
       const intervalSec = range === '1s' ? 1 : (range === '1h' ? 300 : 60);
 
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
         const fluctuation = Number(((Math.random() * 2) - 1).toFixed(2));
         basePrice = Number((basePrice + fluctuation).toFixed(2));
         return {
-          time: time, // Pastikan berupa angka timestamp untuk intraday
+          time: time,
           open: Number((basePrice - 0.3).toFixed(2)),
           high: Number((basePrice + 0.8).toFixed(2)),
           low: Number((basePrice - 0.8).toFixed(2)),
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       return NextResponse.json({
         rawPrice: basePrice,
         price: `Rp${basePrice.toLocaleString('id-ID')}`,
-        change: "+4.30 (+0.45%)",
+        change: "+0.00 (0.00%)",
         isPositive: true,
         status: 'Market Open',
         symbol: 'KMIO.JK',
@@ -128,7 +128,7 @@ export async function GET(request: Request) {
       return timeA - timeB;
     });
 
-    const currentPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 966.30;
+    const currentPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 960;
     const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? currentPrice;
     const rawChange = currentPrice - previousClose;
     const changePercent = (rawChange / previousClose) * 100;
@@ -156,21 +156,21 @@ export async function GET(request: Request) {
     console.error("API Error:", error);
     const fallbackNow = Math.floor(Date.now() / 1000);
     return NextResponse.json({
-      rawPrice: 966.30,
-      price: "Rp966,30",
-      change: "+4.30 (+0.45%)",
+      rawPrice: 960,
+      price: "Rp960,00",
+      change: "+0.00 (0.00%)",
       isPositive: true,
       status: 'Market Open',
       symbol: 'KMIO.JK',
       name: 'PT Kamio Sentra Multiteknologi Tbk',
-      marketCap: 966.30 * 1800000000,
+      marketCap: 960 * 1800000000,
       shares: 1800000000,
-      dayHigh: 977.36,
+      dayHigh: 975,
       dayLow: 940,
       history: [
-        { time: fallbackNow - 120, open: 962, high: 966, low: 961, close: 964, volume: 150000 },
-        { time: fallbackNow - 60, open: 964, high: 967, low: 963, close: 965, volume: 220000 },
-        { time: fallbackNow, open: 965, high: 967.5, low: 965, close: 966.30, volume: 310000 },
+        { time: fallbackNow - 120, open: 955, high: 960, low: 954, close: 958, volume: 150000 },
+        { time: fallbackNow - 60, open: 958, high: 962, low: 957, close: 959, volume: 220000 },
+        { time: fallbackNow, open: 959, high: 963, low: 958, close: 960, volume: 310000 },
       ]
     });
   }
