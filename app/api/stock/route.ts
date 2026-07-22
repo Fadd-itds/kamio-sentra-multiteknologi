@@ -95,7 +95,7 @@ export async function GET(request: Request) {
     const lows = quotes.low || [];
     const volumes = quotes.volume || [];
 
-    // Mapping data dengan validasi ketat terhadap nilai null/undefined dari Yahoo Finance
+    // Mapping data dengan validasi ketat dan format waktu yang disesuaikan dengan interval chart
     const history = timestamps.map((ts: number, index: number) => {
       const closeVal = closes[index];
       const openVal = opens[index];
@@ -108,8 +108,18 @@ export async function GET(request: Request) {
       const validHigh = highVal !== null && highVal !== undefined && !isNaN(highVal) ? highVal : Math.max(closeVal, validOpen);
       const validLow = lowVal !== null && lowVal !== undefined && !isNaN(lowVal) ? lowVal : Math.min(closeVal, validOpen);
 
+      // Format waktu: 'YYYY-MM-DD' untuk harian/mingguan, Unix timestamp (number) untuk intraday
+      let timeValue: string | number = ts;
+      if (yahooInterval === '1d' || yahooInterval === '1wk' || yahooInterval === '1mo') {
+        const dateObj = new Date(ts * 1000);
+        const year = dateObj.getUTCFullYear();
+        const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getUTCDate()).padStart(2, '0');
+        timeValue = `${year}-${month}-${day}`;
+      }
+
       return {
-        time: ts, 
+        time: timeValue, 
         open: Number(validOpen.toFixed(2)),
         high: Number(validHigh.toFixed(2)),
         low: Number(validLow.toFixed(2)),
@@ -118,7 +128,11 @@ export async function GET(request: Request) {
       };
     })
     .filter((row: any) => row !== null)
-    .sort((a: any, b: any) => a.time - b.time); // Urutkan timestamp secara ascending (dari masa lalu ke sekarang)
+    .sort((a: any, b: any) => {
+      const timeA = typeof a.time === 'string' ? new Date(a.time).getTime() : a.time;
+      const timeB = typeof b.time === 'string' ? new Date(b.time).getTime() : b.time;
+      return timeA - timeB;
+    });
 
     const currentPrice = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 962;
     const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? currentPrice;
