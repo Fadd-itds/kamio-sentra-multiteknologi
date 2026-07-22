@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Daftar fallback period jika API kosong
+// Daftar fallback period (ditambah '1S' khusus untuk intraday per detik)
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
+  '1S': { price: 950, base: 950, open: 950, high: 960, low: 940 },   
   '1D': { price: 960, base: 950, open: 950, high: 975, low: 940 },   
   '1W': { price: 945, base: 920, open: 925, high: 965, low: 910 },   
   '1M': { price: 980, base: 875, open: 875, high: 990, low: 870 },   
@@ -137,7 +138,7 @@ export default function StockChart() {
       },
       rightPriceScale: { 
         borderColor: '#d1d5db',
-        scaleMargins: { top: 0.15, bottom: 0.25 }, // Memberikan ruang agar candle tidak menempel ke atas/bawah
+        scaleMargins: { top: 0.15, bottom: 0.25 },
       },
       timeScale: { 
         borderColor: '#d1d5db', 
@@ -149,16 +150,14 @@ export default function StockChart() {
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#93c5fd',
       priceFormat: { type: 'volume' },
-      priceScaleId: 'volume', // Pisahkan priceScale ID agar volume tidak tumpang tindih dengan chart harga
+      priceScaleId: 'volume',
     });
     volumeSeriesRef.current = volumeSeries;
 
-    // Konfigurasi pane terpisah untuk volume di bagian bawah
     chart.priceScale('volume').applyOptions({
       scaleMargins: { top: 0.75, bottom: 0 },
     });
 
-    // Crosshair Move Handler untuk Tooltip Legend
     chart.subscribeCrosshairMove((param: any) => {
       if (!param.time || !param.point) {
         if (historyRef.current.length > 0) {
@@ -166,7 +165,7 @@ export default function StockChart() {
           const lastMa = maSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'sma') : undefined;
           const lastEma = emaSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'ema') : undefined;
           setLegendData({
-            time: typeof last.time === 'number' ? new Date(last.time * 1000).toLocaleString('id-ID') : last.time,
+            time: typeof last.time === 'number' ? new Date(last.time * 1000).toLocaleTimeString('id-ID') : last.time,
             open: last.open,
             high: last.high,
             low: last.low,
@@ -187,7 +186,7 @@ export default function StockChart() {
         const emaData = emaSeriesRef.current ? param.seriesData.get(emaSeriesRef.current) : null;
 
         setLegendData({
-          time: typeof found.time === 'number' ? new Date(found.time * 1000).toLocaleString('id-ID') : found.time,
+          time: typeof found.time === 'number' ? new Date(found.time * 1000).toLocaleTimeString('id-ID') : found.time,
           open: found.open,
           high: found.high,
           low: found.low,
@@ -228,7 +227,7 @@ export default function StockChart() {
     }
   };
 
-  // 2. LOAD & UPDATE DATA DENGAN NORMALISASI OTOMATIS BERBASIS API
+  // 2. LOAD & UPDATE DATA (KHUSUS 1S MEN-GENERATE DATA PER DETIK, LAINNYA FETCH API)
   useEffect(() => {
     if (!isClientReady || !chartRef.current) return;
 
@@ -286,107 +285,123 @@ export default function StockChart() {
 
     const loadData = async () => {
       try {
-        const res = await fetch(`/api/stock?range=${timeRange}`);
-        const json = await res.json();
+        let sortedRaw = [];
 
-        if (isDisposed) return;
-
-        if (json.history && json.history.length > 0) {
-          const rawHistory = json.history;
-          
-          const sortedRaw = [...rawHistory].sort((a: any, b: any) => {
-            const timeA = typeof a.time === 'string' ? new Date(a.time).getTime() : a.time;
-            const timeB = typeof b.time === 'string' ? new Date(b.time).getTime() : b.time;
-            return timeA - timeB;
+        // KHUSUS PERIOD 1S: Generate data dummy per detik secara lokal agar tidak memberatkan server & responsif
+        if (timeRange === '1S') {
+          const nowSec = Math.floor(Date.now() / 1000);
+          let currentP = 950;
+          sortedRaw = Array.from({ length: 40 }, (_, i) => {
+            const time = nowSec - (40 - i);
+            const open = currentP;
+            const change = (Math.random() * 8) - 4;
+            const close = Number((open + change).toFixed(2));
+            const high = Number((Math.max(open, close) + Math.random() * 2).toFixed(2));
+            const low = Number((Math.min(open, close) - Math.random() * 2).toFixed(2));
+            currentP = close;
+            return { time, open, high, low, close, volume: Math.floor(Math.random() * 5000) + 500 };
           });
-
-          const firstRow = sortedRaw[0];
-          const lastRow = sortedRaw[sortedRaw.length - 1];
-
-          const calculatedBase = firstRow.close;
-          const calculatedOpen = firstRow.open;
-          const calculatedHigh = Math.max(...sortedRaw.map((r: any) => r.high));
-          const calculatedLow = Math.min(...sortedRaw.map((r: any) => r.low));
-          const finalClosePrice = lastRow.close;
-
-          setBasePrice(calculatedBase);
-          setPeriodOpen(calculatedOpen);
-          setLivePrice(finalClosePrice);
-          latestPriceRef.current = finalClosePrice;
-
-          const diff = finalClosePrice - calculatedBase;
-          setPriceChange(Math.round(diff));
-          setPriceChangePercent(Number(((diff / calculatedBase) * 100).toFixed(2)));
-
-          setDayHigh(calculatedHigh);
-          setDayLow(calculatedLow);
-
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(`live_price_${timeRange}`, finalClosePrice.toString());
-          }
-
-          const formattedHistory = sortedRaw.map((row: any) => ({
-            time: row.time,
-            open: Number(row.open.toFixed(2)),
-            high: Number(row.high.toFixed(2)),
-            low: Number(row.low.toFixed(2)),
-            close: Number(row.close.toFixed(2)),
-            volume: row.volume || 1000,
-          }));
-
-          historyRef.current = formattedHistory;
-
-          const mainData = historyRef.current.map((row: any) => {
-            if (chartType === 'line') return { time: row.time, value: row.close };
-            return { time: row.time, open: row.open, high: row.high, low: row.low, close: row.close };
-          });
-
-          const volumeData = historyRef.current.map((row: any) => ({
-            time: row.time,
-            value: row.volume,
-            color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
-          }));
-
-          const maData = historyRef.current.map((row: any, idx: number, arr: any[]) => {
-            if (idx < 19) return null;
-            const slice = arr.slice(idx - 19, idx + 1);
-            const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
-            return { time: row.time, value: Number((sum / 20).toFixed(2)) };
-          }).filter((item: any) => item !== null);
-
-          let k = 2 / (20 + 1);
-          let prevEma = historyRef.current[0]?.close || 0;
-          const emaData = historyRef.current.map((row: any, idx: number) => {
-            if (idx === 0) {
-              prevEma = row.close;
-              return { time: row.time, value: row.close };
-            }
-            prevEma = (row.close * k) + (prevEma * (1 - k));
-            return { time: row.time, value: Number(prevEma.toFixed(2)) };
-          });
-
-          if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current && maSeriesRef.current && emaSeriesRef.current) {
-            seriesRef.current.setData(mainData);
-            volumeSeriesRef.current.setData(volumeData);
-            maSeriesRef.current.setData(maData);
-            emaSeriesRef.current.setData(emaData);
-            chartRef.current.timeScale().fitContent();
-
-            setLegendData({
-              time: typeof lastRow.time === 'number' ? new Date(lastRow.time * 1000).toLocaleString('id-ID') : lastRow.time,
-              open: lastRow.open,
-              high: lastRow.high,
-              low: lastRow.low,
-              close: lastRow.close,
-              value: lastRow.close,
-              volume: lastRow.volume,
-              ma: maData[maData.length - 1]?.value,
-              ema: emaData[emaData.length - 1]?.value,
+        } else {
+          // PERIOD LAINNYA: Tetap menggunakan fetch API standar Anda
+          const res = await fetch(`/api/stock?range=${timeRange}`);
+          const json = await res.json();
+          if (json.history && json.history.length > 0) {
+            sortedRaw = [...json.history].sort((a: any, b: any) => {
+              const timeA = typeof a.time === 'string' ? new Date(a.time).getTime() / 1000 : a.time;
+              const timeB = typeof b.time === 'string' ? new Date(b.time).getTime() / 1000 : b.time;
+              return timeA - timeB;
             });
+            if (!isDisposed) setStockInfo(json);
           }
         }
+
+        if (isDisposed || sortedRaw.length === 0) return;
+
+        const firstRow = sortedRaw[0];
+        const lastRow = sortedRaw[sortedRaw.length - 1];
+
+        const calculatedBase = firstRow.close;
+        const calculatedOpen = firstRow.open;
+        const calculatedHigh = Math.max(...sortedRaw.map((r: any) => r.high));
+        const calculatedLow = Math.min(...sortedRaw.map((r: any) => r.low));
+        const finalClosePrice = lastRow.close;
+
+        setBasePrice(calculatedBase);
+        setPeriodOpen(calculatedOpen);
+        setLivePrice(finalClosePrice);
+        latestPriceRef.current = finalClosePrice;
+
+        const diff = finalClosePrice - calculatedBase;
+        setPriceChange(Math.round(diff));
+        setPriceChangePercent(Number(((diff / calculatedBase) * 100).toFixed(2)));
+
+        setDayHigh(calculatedHigh);
+        setDayLow(calculatedLow);
+
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`live_price_${timeRange}`, finalClosePrice.toString());
+        }
+
+        const formattedHistory = sortedRaw.map((row: any) => ({
+          time: typeof row.time === 'string' ? Math.floor(new Date(row.time).getTime() / 1000) : row.time,
+          open: Number(row.open.toFixed(2)),
+          high: Number(row.high.toFixed(2)),
+          low: Number(row.low.toFixed(2)),
+          close: Number(row.close.toFixed(2)),
+          volume: row.volume || 1000,
+        }));
+
+        historyRef.current = formattedHistory;
+
+        const mainData = historyRef.current.map((row: any) => {
+          if (chartType === 'line') return { time: row.time, value: row.close };
+          return { time: row.time, open: row.open, high: row.high, low: row.low, close: row.close };
+        });
+
+        const volumeData = historyRef.current.map((row: any) => ({
+          time: row.time,
+          value: row.volume,
+          color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
+        }));
+
+        const maData = historyRef.current.map((row: any, idx: number, arr: any[]) => {
+          if (idx < 19) return null;
+          const slice = arr.slice(idx - 19, idx + 1);
+          const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+          return { time: row.time, value: Number((sum / 20).toFixed(2)) };
+        }).filter((item: any) => item !== null);
+
+        let k = 2 / (20 + 1);
+        let prevEma = historyRef.current[0]?.close || 0;
+        const emaData = historyRef.current.map((row: any, idx: number) => {
+          if (idx === 0) {
+            prevEma = row.close;
+            return { time: row.time, value: row.close };
+          }
+          prevEma = (row.close * k) + (prevEma * (1 - k));
+          return { time: row.time, value: Number(prevEma.toFixed(2)) };
+        });
+
+        if (!isDisposed && chartRef.current && seriesRef.current && volumeSeriesRef.current && maSeriesRef.current && emaSeriesRef.current) {
+          seriesRef.current.setData(mainData);
+          volumeSeriesRef.current.setData(volumeData);
+          maSeriesRef.current.setData(maData);
+          emaSeriesRef.current.setData(emaData);
+          chartRef.current.timeScale().fitContent();
+
+          setLegendData({
+            time: typeof lastRow.time === 'number' ? new Date(lastRow.time * 1000).toLocaleTimeString('id-ID') : lastRow.time,
+            open: lastRow.open,
+            high: lastRow.high,
+            low: lastRow.low,
+            close: lastRow.close,
+            value: lastRow.close,
+            volume: lastRow.volume,
+            ma: maData[maData.length - 1]?.value,
+            ema: emaData[emaData.length - 1]?.value,
+          });
+        }
         if (!isDisposed) {
-          setStockInfo(json);
           setFeedStatus('Connected');
         }
       } catch (err) {
@@ -416,16 +431,15 @@ export default function StockChart() {
     }
   }, [showEma]);
 
-  // 3. INTERVAL UPDATE REAL-TIME LIVE PRICE & INDICATOR RECALCULATION
+  // 3. INTERVAL UPDATE REAL-TIME (KHUSUS 1S BERGERAK SETIAP 1 DETIK, LAINNYA MENGIKUTI ATURAN ASLI)
   useEffect(() => {
     let updateIntervalMs = 1000;
-    if (timeRange === '1D') updateIntervalMs = 5000;
-    if (['1W', '1M', '3M', '1Y', '3Y', '5Y', '10Y', 'ALL'].includes(timeRange)) {
-      updateIntervalMs = 15000;
-    }
+    if (timeRange === '1S') updateIntervalMs = 1000; // Khusus 1 detik bergerak real-time per detik
+    else if (timeRange === '1D') updateIntervalMs = 5000;
+    else updateIntervalMs = 15000;
 
     const liveInterval = setInterval(() => {
-      if (!marketOpenRef.current) return; 
+      if (!marketOpenRef.current && timeRange !== '1S') return; // Ijinkan 1S simulasi jalan walau market off untuk testing
 
       const currentHistory = historyRef.current;
       if (currentHistory.length > 0 && seriesRef.current) {
@@ -441,10 +455,34 @@ export default function StockChart() {
         setTimeout(() => setPriceFlash(null), 300);
 
         let activeRow = { ...lastRow };
-        activeRow.close = newClose;
-        if (activeRow.close > activeRow.high) activeRow.high = activeRow.close;
-        if (activeRow.close < activeRow.low) activeRow.low = activeRow.close;
-        historyRef.current[lastIndex] = activeRow;
+        // Jika period 1S, kita buat bar baru tiap detik jika ingin benar-benar live per detik, atau update bar terakhir
+        if (timeRange === '1S') {
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (nowSec > activeRow.time) {
+            // Push bar baru untuk detik berikutnya
+            const newBar = {
+              time: nowSec,
+              open: activeRow.close,
+              high: activeRow.close,
+              low: activeRow.close,
+              close: newClose,
+              volume: Math.floor(Math.random() * 1000) + 100,
+            };
+            historyRef.current.push(newBar);
+            if (historyRef.current.length > 100) historyRef.current.shift(); // batasi panjang array
+            activeRow = newBar;
+          } else {
+            activeRow.close = newClose;
+            if (activeRow.close > activeRow.high) activeRow.high = activeRow.close;
+            if (activeRow.close < activeRow.low) activeRow.low = activeRow.close;
+            historyRef.current[lastIndex] = activeRow;
+          }
+        } else {
+          activeRow.close = newClose;
+          if (activeRow.close > activeRow.high) activeRow.high = activeRow.close;
+          if (activeRow.close < activeRow.low) activeRow.low = activeRow.close;
+          historyRef.current[lastIndex] = activeRow;
+        }
 
         if (chartRef.current && seriesRef.current) {
           if (chartType === 'line') {
@@ -492,7 +530,7 @@ export default function StockChart() {
           latestPriceRef.current = activeRow.close;
 
           setLegendData({
-            time: typeof activeRow.time === 'number' ? new Date(activeRow.time * 1000).toLocaleString('id-ID') : activeRow.time,
+            time: typeof activeRow.time === 'number' ? new Date(activeRow.time * 1000).toLocaleTimeString('id-ID') : activeRow.time,
             open: activeRow.open,
             high: activeRow.high,
             low: activeRow.low,
@@ -692,11 +730,11 @@ export default function StockChart() {
           </div>
         </div>
 
-        {/* PERIOD SELECTION */}
+        {/* PERIOD SELECTION (TERMASUK 1S) */}
         <div className="flex items-center gap-3 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
           <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide whitespace-nowrap">Period:</span>
           <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
-            {(['1D', '1W', '1M', '3M', '1Y', '3Y', '5Y', '10Y', 'ALL'] as const).map((range) => (
+            {(['1S', '1D', '1W', '1M', '3M', '1Y', '3Y', '5Y', '10Y', 'ALL'] as const).map((range) => (
               <button
                 key={range}
                 onClick={() => handlePeriodChange(range)}
