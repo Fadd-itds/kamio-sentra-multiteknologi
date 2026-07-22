@@ -3,23 +3,24 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Generator data dengan seed unik per periode agar bentuk grafik benar-benar berbeda total
+// Generator data dengan seed dan base time unik per periode
 const generateFixedPeriodData = (rangeKey: string) => {
-  const configs: Record<string, { base: number; target: number; count: number; volatility: number; seed: number }> = {
-    '1S':  { base: 920, target: 940, count: 25,  volatility: 3,  seed: 1.23 },
-    '1D':  { base: 900, target: 965, count: 35,  volatility: 5,  seed: 9.81 },
-    '1W':  { base: 850, target: 930, count: 45,  volatility: 12, seed: 4.56 },
-    '1M':  { base: 780, target: 990, count: 55,  volatility: 18, seed: 7.89 },
-    '3M':  { base: 950, target: 820, count: 55,  volatility: 25, seed: 3.14 }, // Tren turun
-    '1Y':  { base: 600, target: 1200, count: 60, volatility: 40, seed: 5.55 },
-    '3Y':  { base: 500, target: 1650, count: 60, volatility: 65, seed: 8.88 },
-    '5Y':  { base: 400, target: 2100, count: 60, volatility: 85, seed: 2.71 },
-    '10Y': { base: 300, target: 2900, count: 60, volatility: 110, seed: 6.33 },
-    'ALL': { base: 100, target: 3600, count: 60, volatility: 150, seed: 9.99 },
+  const configs: Record<string, { base: number; target: number; count: number; volatility: number; seed: number; timeOffset: number }> = {
+    '1S':  { base: 920, target: 940, count: 25,  volatility: 3,  seed: 1.23, timeOffset: 0 },
+    '1D':  { base: 900, target: 965, count: 35,  volatility: 5,  seed: 9.81, timeOffset: 86400 * 30 },
+    '1W':  { base: 850, target: 930, count: 45,  volatility: 12, seed: 4.56, timeOffset: 86400 * 90 },
+    '1M':  { base: 780, target: 990, count: 55,  volatility: 18, seed: 7.89, timeOffset: 86400 * 180 },
+    '3M':  { base: 950, target: 820, count: 55,  volatility: 25, seed: 3.14, timeOffset: 86400 * 360 },
+    '1Y':  { base: 600, target: 1200, count: 60, volatility: 40, seed: 5.55, timeOffset: 86400 * 720 },
+    '3Y':  { base: 500, target: 1650, count: 60, volatility: 65, seed: 8.88, timeOffset: 86400 * 1440 },
+    '5Y':  { base: 400, target: 2100, count: 60, volatility: 85, seed: 2.71, timeOffset: 86400 * 2160 },
+    '10Y': { base: 300, target: 2900, count: 60, volatility: 110, seed: 6.33, timeOffset: 86400 * 2880 },
+    'ALL': { base: 100, target: 3600, count: 60, volatility: 150, seed: 9.99, timeOffset: 86400 * 3600 },
   };
 
   const cfg = configs[rangeKey] || configs['1W'];
-  const staticBaseTime = 1782810000; 
+  // Base time digeser per periode agar rentang tanggal di chart ikut berubah
+  const staticBaseTime = 1750000000 + cfg.timeOffset; 
   const rawData = [];
   
   let currentVal = cfg.base;
@@ -29,7 +30,6 @@ const generateFixedPeriodData = (rangeKey: string) => {
   for (let i = 0; i < totalSteps; i++) {
     const time = staticBaseTime + (i * 3600 * 24);
     
-    // Generator acak unik menggunakan seed spesifik per periode
     const pseudoRandom = (Math.sin(i * cfg.seed + 43.123) * 10000) % 1;
     const noise = (pseudoRandom - 0.48) * cfg.volatility * 2.2;
     
