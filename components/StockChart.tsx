@@ -135,7 +135,10 @@ export default function StockChart() {
         vertLines: { color: '#f3f4f6' },
         horzLines: { color: '#f3f4f6' },
       },
-      rightPriceScale: { borderColor: '#d1d5db' },
+      rightPriceScale: { 
+        borderColor: '#d1d5db',
+        scaleMargins: { top: 0.15, bottom: 0.25 }, // Memberikan ruang agar candle tidak menempel ke atas/bawah
+      },
       timeScale: { 
         borderColor: '#d1d5db', 
         timeVisible: true,
@@ -146,12 +149,13 @@ export default function StockChart() {
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#93c5fd',
       priceFormat: { type: 'volume' },
-      priceScaleId: '',
+      priceScaleId: 'volume', // Pisahkan priceScale ID agar volume tidak tumpang tindih dengan chart harga
     });
     volumeSeriesRef.current = volumeSeries;
 
-    chart.priceScale('').applyOptions({
-      scaleMargins: { top: 0.8, bottom: 0 },
+    // Konfigurasi pane terpisah untuk volume di bagian bawah
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.75, bottom: 0 },
     });
 
     // Crosshair Move Handler untuk Tooltip Legend
@@ -162,7 +166,7 @@ export default function StockChart() {
           const lastMa = maSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'sma') : undefined;
           const lastEma = emaSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'ema') : undefined;
           setLegendData({
-            time: new Date(last.time * 1000).toLocaleString('id-ID'),
+            time: typeof last.time === 'number' ? new Date(last.time * 1000).toLocaleString('id-ID') : last.time,
             open: last.open,
             high: last.high,
             low: last.low,
@@ -183,7 +187,7 @@ export default function StockChart() {
         const emaData = emaSeriesRef.current ? param.seriesData.get(emaSeriesRef.current) : null;
 
         setLegendData({
-          time: new Date(found.time * 1000).toLocaleString('id-ID'),
+          time: typeof found.time === 'number' ? new Date(found.time * 1000).toLocaleString('id-ID') : found.time,
           open: found.open,
           high: found.high,
           low: found.low,
@@ -290,12 +294,15 @@ export default function StockChart() {
         if (json.history && json.history.length > 0) {
           const rawHistory = json.history;
           
-          // Urutkan data berdasarkan waktu secara ascending (terlama ke terbaru)
-          const sortedRaw = [...rawHistory].sort((a: any, b: any) => a.time - b.time);
+          const sortedRaw = [...rawHistory].sort((a: any, b: any) => {
+            const timeA = typeof a.time === 'string' ? new Date(a.time).getTime() : a.time;
+            const timeB = typeof b.time === 'string' ? new Date(b.time).getTime() : b.time;
+            return timeA - timeB;
+          });
+
           const firstRow = sortedRaw[0];
           const lastRow = sortedRaw[sortedRaw.length - 1];
 
-          // Ambil harga referensi real dari data history pertama & terakhir
           const calculatedBase = firstRow.close;
           const calculatedOpen = firstRow.open;
           const calculatedHigh = Math.max(...sortedRaw.map((r: any) => r.high));
@@ -318,7 +325,6 @@ export default function StockChart() {
             localStorage.setItem(`live_price_${timeRange}`, finalClosePrice.toString());
           }
 
-          // Format data bersih tanpa scaleFactor pengubah bentuk
           const formattedHistory = sortedRaw.map((row: any) => ({
             time: row.time,
             open: Number(row.open.toFixed(2)),
@@ -367,7 +373,7 @@ export default function StockChart() {
             chartRef.current.timeScale().fitContent();
 
             setLegendData({
-              time: new Date(lastRow.time * 1000).toLocaleString('id-ID'),
+              time: typeof lastRow.time === 'number' ? new Date(lastRow.time * 1000).toLocaleString('id-ID') : lastRow.time,
               open: lastRow.open,
               high: lastRow.high,
               low: lastRow.low,
@@ -486,7 +492,7 @@ export default function StockChart() {
           latestPriceRef.current = activeRow.close;
 
           setLegendData({
-            time: new Date(activeRow.time * 1000).toLocaleString('id-ID'),
+            time: typeof activeRow.time === 'number' ? new Date(activeRow.time * 1000).toLocaleString('id-ID') : activeRow.time,
             open: activeRow.open,
             high: activeRow.high,
             low: activeRow.low,
@@ -686,7 +692,7 @@ export default function StockChart() {
           </div>
         </div>
 
-        {/* PERIOD SELECTION (Stockbit Style) */}
+        {/* PERIOD SELECTION */}
         <div className="flex items-center gap-3 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
           <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide whitespace-nowrap">Period:</span>
           <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
@@ -737,12 +743,19 @@ export default function StockChart() {
           <span className="text-lg font-bold text-gray-900">{formatShares(stockInfo?.shares || 1800000000)}</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Day High</span>
-          <span className="text-lg font-bold text-green-600">{formatRupiah(dayHigh)}</span>
+          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Day Range</span>
+          <span className="text-sm font-bold text-gray-900">{formatRupiah(dayLow)} - {formatRupiah(dayHigh)}</span>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-          <span className="text-gray-400 block text-xs font-semibold uppercase tracking-wider mb-1">Day Low</span>
-          <span className="text-lg font-bold text-red-600">{formatRupiah(dayLow)}</span>
+      </div>
+
+      {/* FEED STATUS BAR */}
+      <div className="flex items-center justify-between text-xs text-gray-400 px-1">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${feedStatus === 'Connected' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+          <span>Feed Status: <strong className="text-gray-600">{feedStatus}</strong></span>
+        </div>
+        <div>
+          <span>Engine: <strong className="text-gray-600">TradingView Lightweight Charts</strong></span>
         </div>
       </div>
 
