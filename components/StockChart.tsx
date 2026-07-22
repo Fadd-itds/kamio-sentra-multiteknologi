@@ -21,6 +21,7 @@ export default function StockChart() {
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
+  const historyRef = useRef<any[]>([]); // Ref untuk menyimpan history agar aman di dalam interval
   
   const [stockInfo, setStockInfo] = useState<any>(null);
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
@@ -155,8 +156,6 @@ export default function StockChart() {
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
-    let currentHistoryData: any[] = [];
-
     const loadData = async () => {
       try {
         const apiParam = timeRange === '1m_time' ? '1m' : timeRange;
@@ -175,7 +174,7 @@ export default function StockChart() {
           const nowSeconds = Math.floor(Date.now() / 1000);
           const intervalStep = timeRange === '1s' ? 1 : timeRange === '1m_time' ? 60 : 3600;
 
-          currentHistoryData = rawHistory.map((row: any, idx: number, arr: any[]) => {
+          const formattedHistory = rawHistory.map((row: any, idx: number, arr: any[]) => {
             const timeOffset = (arr.length - 1 - idx) * intervalStep;
             const realTimestamp = nowSeconds - timeOffset;
 
@@ -189,12 +188,14 @@ export default function StockChart() {
             };
           });
 
-          const mainData = currentHistoryData.map((row: any) => {
+          historyRef.current = formattedHistory;
+
+          const mainData = historyRef.current.map((row: any) => {
             if (chartType === 'line') return { time: row.time, value: row.close };
             return { time: row.time, open: row.open, high: row.high, low: row.low, close: row.close };
           });
 
-          const volumeData = currentHistoryData.map((row: any) => ({
+          const volumeData = historyRef.current.map((row: any) => ({
             time: row.time,
             value: row.volume,
             color: row.close >= row.open ? '#bbf7d0' : '#fecaca',
@@ -205,7 +206,7 @@ export default function StockChart() {
             volumeSeries.setData(volumeData);
             chart.timeScale().fitContent();
 
-            const lastRowData = currentHistoryData[currentHistoryData.length - 1];
+            const lastRowData = historyRef.current[historyRef.current.length - 1];
             if (lastRowData) {
               setDayHigh(Math.max(lastRowData.high, targetMeta.high));
               setDayLow(Math.min(lastRowData.low, targetMeta.low));
@@ -237,9 +238,10 @@ export default function StockChart() {
     const liveInterval = setInterval(() => {
       if (isDisposed || !marketOpenRef.current) return; 
 
-      if (currentHistoryData.length > 0 && series) {
-        const lastIndex = currentHistoryData.length - 1;
-        const lastRow = currentHistoryData[lastIndex];
+      const currentHistory = historyRef.current;
+      if (currentHistory.length > 0 && series) {
+        const lastIndex = currentHistory.length - 1;
+        const lastRow = currentHistory[lastIndex];
 
         const fluctuation = Number(((Math.random() * 6) - 3).toFixed(2));
         let newClose = Number((lastRow.close + fluctuation).toFixed(2));
@@ -250,10 +252,11 @@ export default function StockChart() {
         setTimeout(() => setPriceFlash(null), 300);
 
         let activeRow: any;
+        const currentTimestamp = Math.floor(Date.now() / 1000);
 
         if (timeRange === '1s') {
-          // Buat bar/candle baru setiap 1 detik dengan timestamp maju +1 detik dari sebelumnya
-          const nextTimestamp = lastRow.time + 1;
+          // Pastikan timestamp selalu maju minimal 1 detik dari candle sebelumnya
+          const nextTimestamp = Math.max(currentTimestamp, lastRow.time + 1);
           activeRow = {
             time: nextTimestamp,
             open: lastRow.close,
@@ -262,14 +265,13 @@ export default function StockChart() {
             close: newClose,
             volume: Math.floor(Math.random() * 5000) + 500,
           };
-          currentHistoryData.push(activeRow);
+          historyRef.current.push(activeRow);
         } else {
-          // Update candle yang sama untuk timeframe lebih besar
           activeRow = { ...lastRow };
           activeRow.close = newClose;
           if (activeRow.close > activeRow.high) activeRow.high = activeRow.close;
           if (activeRow.close < activeRow.low) activeRow.low = activeRow.close;
-          currentHistoryData[lastIndex] = activeRow;
+          historyRef.current[lastIndex] = activeRow;
         }
 
         if (!isDisposed && chartRef.current) {
