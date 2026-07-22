@@ -4,25 +4,16 @@ import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries,
 import { useMarketTime } from './useMarketTime';
 
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
-  '1s':       { price: 936, base: 935, open: 935, high: 942, low: 930 },   
-  '1m_time': { price: 928, base: 925, open: 925, high: 945, low: 920 },   
-  '1h':       { price: 945, base: 900, open: 902, high: 950, low: 895 },   
-  '1d':       { price: 960, base: 875, open: 875, high: 975, low: 870 },   
+  '1s':       { price: 962, base: 950, open: 950, high: 975, low: 940 },   
+  '1m_time': { price: 950, base: 920, open: 925, high: 965, low: 910 },   
+  '1h':       { price: 945, base: 900, open: 902, high: 970, low: 895 },   
+  '1d':       { price: 960, base: 875, open: 875, high: 980, low: 870 },   
   '1m':       { price: 980, base: 820, open: 825, high: 990, low: 810 },   
   '3m':       { price: 1020, base: 740, open: 745, high: 1040, low: 720 }, 
   '6m':       { price: 1050, base: 650, open: 660, high: 1080, low: 630 }, 
   'ytd':      { price: 1100, base: 580, open: 585, high: 1120, low: 550 }, 
   '1y':       { price: 1250, base: 480, open: 490, high: 1280, low: 460 }, 
   '5y':       { price: 2100, base: 200, open: 210, high: 2150, low: 180 }, 
-};
-
-const getIntervalStep = (range: string) => {
-  if (range === '1s') return 1;                  
-  if (range === '1m_time') return 60;            
-  if (range === '1h') return 3600;               
-  if (range === '1d') return 86400;              
-  if (['1m', '3m', '6m', 'ytd'].includes(range)) return 86400 * 30; 
-  return 86400 * 365;                            
 };
 
 export default function StockChart() {
@@ -89,8 +80,6 @@ export default function StockChart() {
   const handlePeriodChange = (range: keyof typeof PERIOD_DATA) => {
     setTimeRange(range);
     
-    // Jangan hapus historyRef secara total jika ingin mempertahankan kelanjutan, 
-    // tapi cukup kosongkan chart view agar data baru dimuat dengan mulus
     if (seriesRef.current) {
       seriesRef.current.setData([]);
     }
@@ -196,20 +185,14 @@ export default function StockChart() {
           const targetMeta = PERIOD_DATA[timeRange] || PERIOD_DATA['1s'];
           
           const firstClose = rawHistory[0]?.close || targetMeta.base;
-          
-          // Ambil harga aktif saat ini agar skala candle sesuai dengan harga live terakhir
           const currentActivePrice = latestPriceRef.current || livePrice || targetMeta.price;
+          
+          // Scaling agar history menyambung mulus ke harga live aktif
           const scaleFactor = currentActivePrice / firstClose;
 
-          const nowSeconds = Math.floor(Date.now() / 1000);
-          const intervalStep = getIntervalStep(timeRange);
-
-          const formattedHistory = rawHistory.map((row: any, idx: number, arr: any[]) => {
-            const timeOffset = (arr.length - 1 - idx) * intervalStep;
-            const realTimestamp = nowSeconds - timeOffset;
-
+          const formattedHistory = rawHistory.map((row: any) => {
             return {
-              time: realTimestamp,
+              time: row.time,
               open: Number((row.open * scaleFactor).toFixed(2)),
               high: Number((row.high * scaleFactor).toFixed(2)),
               low: Number((row.low * scaleFactor).toFixed(2)),
@@ -218,7 +201,6 @@ export default function StockChart() {
             };
           });
 
-          // PENTING: Paksa candle terakhir menggunakan harga live aktif (agar nyambung dan tidak reset)
           if (formattedHistory.length > 0) {
             const lastIdx = formattedHistory.length - 1;
             formattedHistory[lastIdx].close = currentActivePrice;
