@@ -122,7 +122,7 @@ export default function StockChart() {
       timeScale: { 
         borderColor: '#d1d5db', 
         timeVisible: true,
-        secondsVisible: true, // Menampilkan detik secara presisi di sumbu X
+        secondsVisible: true, 
       },
     });
     chartRef.current = chart;
@@ -172,7 +172,6 @@ export default function StockChart() {
           const firstClose = rawHistory[0]?.close || targetMeta.base;
           const scaleFactor = targetMeta.price / firstClose;
 
-          // Generate timestamp riwayat berbasis waktu riil detik sekarang mundur ke belakang
           const nowSeconds = Math.floor(Date.now() / 1000);
           const intervalStep = timeRange === '1s' ? 1 : timeRange === '1m_time' ? 60 : 3600;
 
@@ -189,13 +188,6 @@ export default function StockChart() {
               volume: row.volume || 1000,
             };
           });
-
-          const lastIdx = currentHistoryData.length - 1;
-          if (currentHistoryData[lastIdx]) {
-            currentHistoryData[lastIdx].close = latestPriceRef.current || targetMeta.price;
-            if (currentHistoryData[lastIdx].close > currentHistoryData[lastIdx].high) currentHistoryData[lastIdx].high = currentHistoryData[lastIdx].close;
-            if (currentHistoryData[lastIdx].close < currentHistoryData[lastIdx].low) currentHistoryData[lastIdx].low = currentHistoryData[lastIdx].close;
-          }
 
           const mainData = currentHistoryData.map((row: any) => {
             if (chartType === 'line') return { time: row.time, value: row.close };
@@ -246,7 +238,6 @@ export default function StockChart() {
       if (isDisposed || !marketOpenRef.current) return; 
 
       if (currentHistoryData.length > 0 && series) {
-        const currentTimestamp = Math.floor(Date.now() / 1000);
         const lastIndex = currentHistoryData.length - 1;
         const lastRow = currentHistoryData[lastIndex];
 
@@ -260,10 +251,11 @@ export default function StockChart() {
 
         let activeRow: any;
 
-        if (timeRange === '1s' && currentTimestamp > lastRow.time) {
-          // Buat bar / candle baru setiap detiknya untuk mode 1s
+        if (timeRange === '1s') {
+          // Buat bar/candle baru setiap 1 detik dengan timestamp maju +1 detik dari sebelumnya
+          const nextTimestamp = lastRow.time + 1;
           activeRow = {
-            time: currentTimestamp,
+            time: nextTimestamp,
             open: lastRow.close,
             high: Math.max(lastRow.close, newClose),
             low: Math.min(lastRow.close, newClose),
