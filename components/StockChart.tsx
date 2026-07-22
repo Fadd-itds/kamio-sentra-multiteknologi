@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Daftar fallback period (ditambah '1S' khusus untuk intraday per detik)
 const PERIOD_DATA: Record<string, { price: number; base: number; open: number; high: number; low: number }> = {
   '1S': { price: 950, base: 950, open: 950, high: 960, low: 940 },   
   '1D': { price: 960, base: 950, open: 950, high: 975, low: 940 },   
@@ -36,10 +35,10 @@ export default function StockChart() {
       const saved = localStorage.getItem('selected_time_range');
       if (saved && saved in PERIOD_DATA) return saved as keyof typeof PERIOD_DATA;
     }
-    return '1D';
+    return '1W';
   });
 
-  const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1D'];
+  const targetData = PERIOD_DATA[timeRange] || PERIOD_DATA['1W'];
 
   const [livePrice, setLivePrice] = useState<number>(() => {
     if (typeof window !== 'undefined') {
@@ -69,7 +68,6 @@ export default function StockChart() {
   const [chartType, setChartType] = useState<'line' | 'candlestick' | 'ohlc'>('candlestick');
   const [feedStatus, setFeedStatus] = useState<'Connected' | 'Reconnecting...' | 'Disconnected'>('Connected');
 
-  // State untuk Toggle & Tooltip Legend
   const [showMa, setShowMa] = useState<boolean>(true);
   const [showEma, setShowEma] = useState<boolean>(true);
   const [legendData, setLegendData] = useState<{
@@ -119,7 +117,6 @@ export default function StockChart() {
     }
   };
 
-  // 1. INISISALISASI CHART SEKALI SAJA SAAT MOUNT
   useEffect(() => {
     if (!isClientReady || !chartContainerRef.current) return;
 
@@ -164,8 +161,13 @@ export default function StockChart() {
           const last = historyRef.current[historyRef.current.length - 1];
           const lastMa = maSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'sma') : undefined;
           const lastEma = emaSeriesRef.current ? getLatestIndicatorValue(historyRef.current, 20, 'ema') : undefined;
+          
+          const formattedDate = typeof last.time === 'number' 
+            ? new Date(last.time * 1000).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':').replace(',', '') 
+            : last.time;
+
           setLegendData({
-            time: typeof last.time === 'number' ? new Date(last.time * 1000).toLocaleTimeString('id-ID') : last.time,
+            time: formattedDate,
             open: last.open,
             high: last.high,
             low: last.low,
@@ -185,8 +187,12 @@ export default function StockChart() {
         const maData = maSeriesRef.current ? param.seriesData.get(maSeriesRef.current) : null;
         const emaData = emaSeriesRef.current ? param.seriesData.get(emaSeriesRef.current) : null;
 
+        const formattedDate = typeof found.time === 'number' 
+          ? new Date(found.time * 1000).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':').replace(',', '') 
+          : found.time;
+
         setLegendData({
-          time: typeof found.time === 'number' ? new Date(found.time * 1000).toLocaleTimeString('id-ID') : found.time,
+          time: formattedDate,
           open: found.open,
           high: found.high,
           low: found.low,
@@ -227,7 +233,6 @@ export default function StockChart() {
     }
   };
 
-  // 2. LOAD & UPDATE DATA (KHUSUS 1S MEN-GENERATE DATA PER DETIK, LAINNYA FETCH API)
   useEffect(() => {
     if (!isClientReady || !chartRef.current) return;
 
@@ -287,7 +292,6 @@ export default function StockChart() {
       try {
         let sortedRaw = [];
 
-        // KHUSUS PERIOD 1S: Generate data dummy per detik secara lokal agar tidak memberatkan server & responsif
         if (timeRange === '1S') {
           const nowSec = Math.floor(Date.now() / 1000);
           let currentP = 950;
@@ -302,7 +306,6 @@ export default function StockChart() {
             return { time, open, high, low, close, volume: Math.floor(Math.random() * 5000) + 500 };
           });
         } else {
-          // PERIOD LAINNYA: Tetap menggunakan fetch API standar Anda
           const res = await fetch(`/api/stock?range=${timeRange}`);
           const json = await res.json();
           if (json.history && json.history.length > 0) {
@@ -389,8 +392,12 @@ export default function StockChart() {
           emaSeriesRef.current.setData(emaData);
           chartRef.current.timeScale().fitContent();
 
+          const formattedDate = typeof lastRow.time === 'number' 
+            ? new Date(lastRow.time * 1000).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':').replace(',', '') 
+            : lastRow.time;
+
           setLegendData({
-            time: typeof lastRow.time === 'number' ? new Date(lastRow.time * 1000).toLocaleTimeString('id-ID') : lastRow.time,
+            time: formattedDate,
             open: lastRow.open,
             high: lastRow.high,
             low: lastRow.low,
@@ -431,15 +438,14 @@ export default function StockChart() {
     }
   }, [showEma]);
 
-  // 3. INTERVAL UPDATE REAL-TIME (KHUSUS 1S BERGERAK SETIAP 1 DETIK, LAINNYA MENGIKUTI ATURAN ASLI)
   useEffect(() => {
     let updateIntervalMs = 1000;
-    if (timeRange === '1S') updateIntervalMs = 1000; // Khusus 1 detik bergerak real-time per detik
+    if (timeRange === '1S') updateIntervalMs = 1000;
     else if (timeRange === '1D') updateIntervalMs = 5000;
     else updateIntervalMs = 15000;
 
     const liveInterval = setInterval(() => {
-      if (!marketOpenRef.current && timeRange !== '1S') return; // Ijinkan 1S simulasi jalan walau market off untuk testing
+      if (!marketOpenRef.current && timeRange !== '1S') return;
 
       const currentHistory = historyRef.current;
       if (currentHistory.length > 0 && seriesRef.current) {
@@ -455,11 +461,9 @@ export default function StockChart() {
         setTimeout(() => setPriceFlash(null), 300);
 
         let activeRow = { ...lastRow };
-        // Jika period 1S, kita buat bar baru tiap detik jika ingin benar-benar live per detik, atau update bar terakhir
         if (timeRange === '1S') {
           const nowSec = Math.floor(Date.now() / 1000);
           if (nowSec > activeRow.time) {
-            // Push bar baru untuk detik berikutnya
             const newBar = {
               time: nowSec,
               open: activeRow.close,
@@ -469,7 +473,7 @@ export default function StockChart() {
               volume: Math.floor(Math.random() * 1000) + 100,
             };
             historyRef.current.push(newBar);
-            if (historyRef.current.length > 100) historyRef.current.shift(); // batasi panjang array
+            if (historyRef.current.length > 100) historyRef.current.shift();
             activeRow = newBar;
           } else {
             activeRow.close = newClose;
@@ -529,8 +533,12 @@ export default function StockChart() {
           setDayLow(prev => Math.min(prev, activeRow.low));
           latestPriceRef.current = activeRow.close;
 
+          const formattedDate = typeof activeRow.time === 'number' 
+            ? new Date(activeRow.time * 1000).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':').replace(',', '') 
+            : activeRow.time;
+
           setLegendData({
-            time: typeof activeRow.time === 'number' ? new Date(activeRow.time * 1000).toLocaleTimeString('id-ID') : activeRow.time,
+            time: formattedDate,
             open: activeRow.open,
             high: activeRow.high,
             low: activeRow.low,
@@ -619,7 +627,6 @@ export default function StockChart() {
               <div className="flex justify-between"><span className="text-red-600 font-semibold">Closed :</span><span className="font-mono font-bold text-red-600">16:00 WIB</span></div>
             </div>
 
-            {/* Market State Widget */}
             <div className="px-3 py-2 bg-gray-50/70 border-t border-gray-100 flex justify-between items-center text-[11px]">
               <div>
                 <span className="text-gray-400 block font-normal">Current Session</span>
@@ -631,7 +638,6 @@ export default function StockChart() {
               </div>
             </div>
 
-            {/* Server Time Widget */}
             <div className="px-3 py-1.5 bg-zinc-900 text-zinc-100 flex justify-between items-center text-[10px]">
               <span className="font-medium text-zinc-400">Server Time</span>
               <span className="font-mono font-semibold tracking-wider text-emerald-400">{marketInfo.serverTimeText}</span>
@@ -664,7 +670,6 @@ export default function StockChart() {
             Period Open Ref : <strong className="text-gray-700">{formatRupiah(periodOpen)}</strong>
           </div>
 
-          {/* Countdown & Session Progress */}
           <div className="pt-2 space-y-2 border-t border-gray-100 mt-2">
             <div>
               <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider block">Next Trading Session</span>
@@ -675,7 +680,6 @@ export default function StockChart() {
               </div>
             </div>
 
-            {/* Trading Session Progress Bar */}
             <div className="space-y-1 pt-1">
               <div className="flex justify-between text-[10px] font-semibold text-gray-500">
                 <span>Trading Session</span>
@@ -700,7 +704,6 @@ export default function StockChart() {
       {/* CHART CONFIGURATION CONTROLS */}
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
         <div className="flex items-center gap-6 flex-wrap">
-          {/* Chart Type */}
           <div className="flex items-center gap-3">
             <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide">Type:</span>
             <div className="flex gap-3 text-xs font-medium text-gray-600">
@@ -716,7 +719,6 @@ export default function StockChart() {
             </div>
           </div>
 
-          {/* Indicator Toggles */}
           <div className="flex items-center gap-3 border-l pl-4 border-gray-300">
             <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide">Indicators:</span>
             <label className="flex items-center gap-1.5 text-xs font-medium text-blue-600 cursor-pointer">
@@ -730,7 +732,7 @@ export default function StockChart() {
           </div>
         </div>
 
-        {/* PERIOD SELECTION (TERMASUK 1S) */}
+        {/* PERIOD SELECTION */}
         <div className="flex items-center gap-3 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
           <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide whitespace-nowrap">Period:</span>
           <div className="flex bg-white border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
@@ -759,7 +761,7 @@ export default function StockChart() {
           <span>C: <strong className="text-white">{legendData.close ? formatRupiah(legendData.close) : '-'}</strong></span>
         </div>
         <div className="flex items-center gap-4 flex-wrap">
-          <span className="text-blue-400">MA20: <strong>{legendData.ma ? formatRupiah(legendData.ma) : '-'}</strong></span>
+          <span className="text-blue-400">MA20: <strong className={legendData.ma ? "text-blue-400" : "text-gray-400"}>{legendData.ma ? formatRupiah(legendData.ma) : '-'}</strong></span>
           <span className="text-orange-400">EMA20: <strong>{legendData.ema ? formatRupiah(legendData.ema) : '-'}</strong></span>
           <span className="text-gray-400">Vol: <strong>{legendData.volume?.toLocaleString() ?? '-'}</strong></span>
         </div>
