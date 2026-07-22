@@ -3,19 +3,19 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, LineSeries, CandlestickSeries, BarSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { useMarketTime } from './useMarketTime';
 
-// Generator data saham acak yang realistis (gerigi & fluktuatif) namun tetap konsisten/statis
+// Generator data dengan seed unik per periode agar bentuk grafik benar-benar berbeda total
 const generateFixedPeriodData = (rangeKey: string) => {
-  const configs: Record<string, { base: number; target: number; count: number; volatility: number }> = {
-    '1S':  { base: 900, target: 950, count: 30,  volatility: 6 },
-    '1D':  { base: 910, target: 960, count: 40,  volatility: 7 },
-    '1W':  { base: 880, target: 945, count: 50,  volatility: 10 },
-    '1M':  { base: 850, target: 980, count: 60,  volatility: 14 },
-    '3M':  { base: 800, target: 1020, count: 60, volatility: 20 },
-    '1Y':  { base: 720, target: 1250, count: 60, volatility: 35 },
-    '3Y':  { base: 600, target: 1700, count: 60, volatility: 50 },
-    '5Y':  { base: 450, target: 2100, count: 60, volatility: 70 },
-    '10Y': { base: 280, target: 2800, count: 60, volatility: 90 },
-    'ALL': { base: 150, target: 3500, count: 60, volatility: 120 },
+  const configs: Record<string, { base: number; target: number; count: number; volatility: number; seed: number }> = {
+    '1S':  { base: 920, target: 940, count: 25,  volatility: 3,  seed: 1.23 },
+    '1D':  { base: 900, target: 965, count: 35,  volatility: 5,  seed: 9.81 },
+    '1W':  { base: 850, target: 930, count: 45,  volatility: 12, seed: 4.56 },
+    '1M':  { base: 780, target: 990, count: 55,  volatility: 18, seed: 7.89 },
+    '3M':  { base: 950, target: 820, count: 55,  volatility: 25, seed: 3.14 }, // Tren turun
+    '1Y':  { base: 600, target: 1200, count: 60, volatility: 40, seed: 5.55 },
+    '3Y':  { base: 500, target: 1650, count: 60, volatility: 65, seed: 8.88 },
+    '5Y':  { base: 400, target: 2100, count: 60, volatility: 85, seed: 2.71 },
+    '10Y': { base: 300, target: 2900, count: 60, volatility: 110, seed: 6.33 },
+    'ALL': { base: 100, target: 3600, count: 60, volatility: 150, seed: 9.99 },
   };
 
   const cfg = configs[rangeKey] || configs['1W'];
@@ -29,17 +29,16 @@ const generateFixedPeriodData = (rangeKey: string) => {
   for (let i = 0; i < totalSteps; i++) {
     const time = staticBaseTime + (i * 3600 * 24);
     
-    // Pseudo-random deterministik (menghasilkan angka acak yang SELALU SAMA untuk index `i` yang sama)
-    const pseudoRandom = (Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1;
-    const noise = (pseudoRandom - 0.5) * cfg.volatility * 2;
+    // Generator acak unik menggunakan seed spesifik per periode
+    const pseudoRandom = (Math.sin(i * cfg.seed + 43.123) * 10000) % 1;
+    const noise = (pseudoRandom - 0.48) * cfg.volatility * 2.2;
     
-    // Tren dasar menuju target ditambah noise acak agar bergerigi
     const linearTrend = (priceRange / totalSteps);
     const open = currentVal;
     const close = Number((open + linearTrend + noise).toFixed(2));
     
-    const high = Number((Math.max(open, close) + Math.abs(pseudoRandom * cfg.volatility * 0.6) + 1).toFixed(2));
-    const low = Number((Math.min(open, close) - Math.abs((pseudoRandom * 0.5) * cfg.volatility * 0.6) - 1).toFixed(2));
+    const high = Number((Math.max(open, close) + Math.abs(pseudoRandom * cfg.volatility * 0.7) + 0.8).toFixed(2));
+    const low = Number((Math.min(open, close) - Math.abs((pseudoRandom * 0.6) * cfg.volatility * 0.7) - 0.8).toFixed(2));
     
     currentVal = close;
     rawData.push({
@@ -48,11 +47,10 @@ const generateFixedPeriodData = (rangeKey: string) => {
       high: Math.max(high, open, close),
       low: Math.min(low, open, close),
       close,
-      volume: Math.floor(Math.abs(pseudoRandom * 15000) + 3000),
+      volume: Math.floor(Math.abs(pseudoRandom * 25000) + 2000),
     });
   }
 
-  // Paksa titik terakhir pas dengan target harga
   if (rawData.length > 0) {
     rawData[rawData.length - 1].close = cfg.target;
   }
@@ -75,7 +73,6 @@ export default function StockChart() {
   const [isClientReady, setIsClientReady] = useState<boolean>(false);
   const [timeRange, setTimeRange] = useState<string>('1W');
 
-  // Ambil data referensi awal berdasarkan timeRange aktif
   const initialDummy = generateFixedPeriodData('1W');
   const lastInitial = initialDummy[initialDummy.length - 1];
   const firstInitial = initialDummy[0];
@@ -112,7 +109,6 @@ export default function StockChart() {
     setIsClientReady(true);
   }, []);
 
-  // Inisialisasi Grafik TradingView sekali saja saat mount
   useEffect(() => {
     if (!isClientReady || !chartContainerRef.current) return;
 
@@ -229,7 +225,6 @@ export default function StockChart() {
     }
   };
 
-  // Render dan Update Data setiap timeRange atau chartType berubah
   useEffect(() => {
     if (!isClientReady || !chartRef.current) return;
 
@@ -283,7 +278,6 @@ export default function StockChart() {
     });
     emaSeriesRef.current = emaSeries;
 
-    // Ambil data fix sesuai periode
     const rawData = generateFixedPeriodData(timeRange);
     if (rawData.length === 0) return;
 
